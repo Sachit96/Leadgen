@@ -163,17 +163,3 @@ export async function buildPersonalizationContext(
   };
 }
 
-/** Variables a template may use, for the composer's helper UI. */
-export const AVAILABLE_VARIABLES = [
-  { key: 'first_name', description: "Prospect's first name, or the owner's first name" },
-  { key: 'company', description: 'Company name' },
-  { key: 'city', description: 'City' },
-  { key: 'province', description: 'Province or state' },
-  { key: 'industry', description: 'Industry' },
-  { key: 'service', description: 'Their service in plain language (e.g. "roof replacements")' },
-  { key: 'personalization_hook', description: 'Researched opening line specific to this business' },
-  { key: 'owner_name', description: 'Owner name from research' },
-  { key: 'reviews', description: 'Google review count' },
-  { key: 'sender_name', description: 'Your agent name from settings' },
-  { key: 'offer_name', description: 'Your product name from settings' },
-] as const;

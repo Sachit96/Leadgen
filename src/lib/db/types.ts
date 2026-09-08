@@ -29,27 +29,31 @@ export type KnowledgeEntry = InferSelectModel<typeof s.knowledgeEntries>;
 export type Objection = InferSelectModel<typeof s.objections>;
 export type SuppressionEntry = InferSelectModel<typeof s.suppressionEntries>;
 
-export type UserRole = (typeof s.userRoleEnum.enumValues)[number];
-export type ProspectStatus = (typeof s.prospectStatusEnum.enumValues)[number];
-export type CampaignStatus = (typeof s.campaignStatusEnum.enumValues)[number];
-export type ConversationState = (typeof s.conversationStateEnum.enumValues)[number];
-export type MessageStatus = (typeof s.messageStatusEnum.enumValues)[number];
-export type MessageDirection = (typeof s.messageDirectionEnum.enumValues)[number];
-export type MessageAuthor = (typeof s.messageAuthorEnum.enumValues)[number];
-export type PipelineStage = (typeof s.pipelineStageEnum.enumValues)[number];
-export type AppointmentStatus = (typeof s.appointmentStatusEnum.enumValues)[number];
-export type ActivityType = (typeof s.activityTypeEnum.enumValues)[number];
-export type Intent = (typeof s.intentEnum.enumValues)[number];
-export type LeadTemperature = (typeof s.leadTemperatureEnum.enumValues)[number];
-export type AgentType = (typeof s.agentTypeEnum.enumValues)[number];
-export type JobStatus = (typeof s.jobStatusEnum.enumValues)[number];
-export type SuppressionReason = (typeof s.suppressionReasonEnum.enumValues)[number];
-export type ProviderKind = (typeof s.providerKindEnum.enumValues)[number];
-export type NotificationType = (typeof s.notificationTypeEnum.enumValues)[number];
-export type MembershipStatus = (typeof s.membershipStatusEnum.enumValues)[number];
+export type {
+  UserRole,
+  ProspectStatus,
+  CampaignStatus,
+  ConversationState,
+  MessageStatus,
+  MessageDirection,
+  MessageAuthor,
+  PipelineStage,
+  AppointmentStatus,
+  ActivityType,
+  Intent,
+  LeadTemperature,
+  AgentType,
+  JobStatus,
+  SuppressionReason,
+  ProviderKind,
+  NotificationType,
+  MembershipStatus,
+} from '@/lib/constants/enums';
 
-export const PROSPECT_STATUSES = s.prospectStatusEnum.enumValues;
-export const CONVERSATION_STATES = s.conversationStateEnum.enumValues;
-export const PIPELINE_STAGES = s.pipelineStageEnum.enumValues;
-export const CAMPAIGN_STATUSES = s.campaignStatusEnum.enumValues;
-export const USER_ROLES = s.userRoleEnum.enumValues;
+export {
+  PROSPECT_STATUSES,
+  CONVERSATION_STATES,
+  PIPELINE_STAGES,
+  CAMPAIGN_STATUSES,
+  USER_ROLES,
+} from '@/lib/constants/enums';

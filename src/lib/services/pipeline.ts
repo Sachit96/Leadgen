@@ -7,22 +7,9 @@ import { recordActivity } from './activity';
 import { advanceProspectStatus } from './contacts';
 import type { Ctx } from '@/lib/auth/context';
 import type { PipelineDeal, PipelineStage, ProspectStatus } from '@/lib/db/types';
-import { PIPELINE_STAGES } from '@/lib/db/types';
+import { PIPELINE_STAGES, STAGE_LABELS } from '@/lib/constants/enums';
 
-export { PIPELINE_STAGES };
-
-export const STAGE_LABELS: Record<PipelineStage, string> = {
-  NEW: 'New',
-  CONTACTED: 'Contacted',
-  REPLIED: 'Replied',
-  QUALIFIED: 'Qualified',
-  APPOINTMENT: 'Appointment',
-  SHOWED: 'Showed',
-  OPPORTUNITY: 'Opportunity',
-  PROPOSAL: 'Proposal',
-  WON: 'Won',
-  LOST: 'Lost',
-};
+export { PIPELINE_STAGES, STAGE_LABELS };
 
 const STAGE_ORDER: Record<PipelineStage, number> = Object.fromEntries(
   PIPELINE_STAGES.map((stage, index) => [stage, index]),

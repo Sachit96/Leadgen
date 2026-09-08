@@ -10,6 +10,7 @@
  *  - Money is stored in cents as integers. Never floats.
  */
 import { relations, sql } from 'drizzle-orm';
+import * as E from '@/lib/constants/enums';
 import {
   boolean,
   index,
@@ -27,174 +28,43 @@ import {
 
 /* ------------------------------------------------------------------ enums */
 
-export const userRoleEnum = pgEnum('user_role', ['OWNER', 'ADMIN', 'SALES_REP', 'VIEWER']);
+export const userRoleEnum = pgEnum('user_role', E.USER_ROLES);
 
-export const prospectStatusEnum = pgEnum('prospect_status', [
-  'NEW',
-  'RESEARCHING',
-  'READY',
-  'QUEUED',
-  'CONTACTED',
-  'REPLIED',
-  'QUALIFIED',
-  'APPOINTMENT',
-  'OPPORTUNITY',
-  'WON',
-  'LOST',
-  'DO_NOT_CONTACT',
-]);
+export const prospectStatusEnum = pgEnum('prospect_status', E.PROSPECT_STATUSES);
 
-export const campaignStatusEnum = pgEnum('campaign_status', [
-  'DRAFT',
-  'ACTIVE',
-  'PAUSED',
-  'COMPLETED',
-  'ARCHIVED',
-]);
+export const campaignStatusEnum = pgEnum('campaign_status', E.CAMPAIGN_STATUSES);
 
-export const membershipStatusEnum = pgEnum('campaign_membership_status', [
-  'PENDING',
-  'ACTIVE',
-  'PAUSED',
-  'COMPLETED',
-  'STOPPED',
-]);
+export const membershipStatusEnum = pgEnum('campaign_membership_status', E.CAMPAIGN_MEMBERSHIP_STATUSES);
 
-export const conversationStateEnum = pgEnum('conversation_state', [
-  'NEW',
-  'OPENING',
-  'DISCOVERY',
-  'PAIN',
-  'QUALIFICATION',
-  'VALUE',
-  'OBJECTION',
-  'APPOINTMENT',
-  'BOOKED',
-  'HUMAN_HANDOFF',
-  'NOT_INTERESTED',
-  'DO_NOT_CONTACT',
-  'CLOSED',
-]);
+export const conversationStateEnum = pgEnum('conversation_state', E.CONVERSATION_STATES);
 
-export const messageDirectionEnum = pgEnum('message_direction', ['INBOUND', 'OUTBOUND']);
+export const messageDirectionEnum = pgEnum('message_direction', E.MESSAGE_DIRECTIONS);
 
-export const messageStatusEnum = pgEnum('message_status', [
-  'DRAFT',
-  'QUEUED',
-  'SENDING',
-  'SENT',
-  'DELIVERED',
-  'FAILED',
-  'UNDELIVERED',
-  'RECEIVED',
-]);
+export const messageStatusEnum = pgEnum('message_status', E.MESSAGE_STATUSES);
 
-export const messageAuthorEnum = pgEnum('message_author', ['AI', 'HUMAN', 'SYSTEM', 'PROSPECT']);
+export const messageAuthorEnum = pgEnum('message_author', E.MESSAGE_AUTHORS);
 
-export const jobStatusEnum = pgEnum('job_status', [
-  'PENDING',
-  'PROCESSING',
-  'SUCCEEDED',
-  'FAILED',
-  'DEAD',
-  'CANCELLED',
-]);
+export const jobStatusEnum = pgEnum('job_status', E.JOB_STATUSES);
 
-export const pipelineStageEnum = pgEnum('pipeline_stage', [
-  'NEW',
-  'CONTACTED',
-  'REPLIED',
-  'QUALIFIED',
-  'APPOINTMENT',
-  'SHOWED',
-  'OPPORTUNITY',
-  'PROPOSAL',
-  'WON',
-  'LOST',
-]);
+export const pipelineStageEnum = pgEnum('pipeline_stage', E.PIPELINE_STAGES);
 
-export const appointmentStatusEnum = pgEnum('appointment_status', [
-  'SCHEDULED',
-  'RESCHEDULED',
-  'CANCELLED',
-  'COMPLETED',
-  'NO_SHOW',
-]);
+export const appointmentStatusEnum = pgEnum('appointment_status', E.APPOINTMENT_STATUSES);
 
-export const taskStatusEnum = pgEnum('task_status', ['OPEN', 'DONE', 'CANCELLED']);
+export const taskStatusEnum = pgEnum('task_status', E.TASK_STATUSES);
 
-export const intentEnum = pgEnum('intent', [
-  'positive',
-  'negative',
-  'neutral',
-  'question',
-  'opt_out',
-  'wrong_number',
-  'unknown',
-]);
+export const intentEnum = pgEnum('intent', E.INTENTS);
 
-export const leadTemperatureEnum = pgEnum('lead_temperature', ['cold', 'warm', 'hot']);
+export const leadTemperatureEnum = pgEnum('lead_temperature', E.LEAD_TEMPERATURES);
 
-export const agentTypeEnum = pgEnum('agent_type', [
-  'sales',
-  'research',
-  'personalization',
-  'qualification',
-  'summary',
-  'classifier',
-]);
+export const agentTypeEnum = pgEnum('agent_type', E.AGENT_TYPES);
 
-export const suppressionReasonEnum = pgEnum('suppression_reason', [
-  'OPT_OUT',
-  'MANUAL',
-  'INVALID_NUMBER',
-  'COMPLAINT',
-  'HARD_BOUNCE',
-]);
+export const suppressionReasonEnum = pgEnum('suppression_reason', E.SUPPRESSION_REASONS);
 
-export const activityTypeEnum = pgEnum('activity_type', [
-  'prospect_created',
-  'prospect_updated',
-  'prospect_imported',
-  'research_completed',
-  'score_changed',
-  'campaign_assigned',
-  'campaign_removed',
-  'message_queued',
-  'message_sent',
-  'message_delivered',
-  'message_failed',
-  'inbound_received',
-  'ai_response',
-  'ai_failed',
-  'human_response',
-  'state_changed',
-  'stage_changed',
-  'human_handoff',
-  'qualification_updated',
-  'appointment_created',
-  'appointment_rescheduled',
-  'appointment_cancelled',
-  'appointment_completed',
-  'opportunity_created',
-  'deal_won',
-  'deal_lost',
-  'suppressed',
-  'note',
-]);
+export const activityTypeEnum = pgEnum('activity_type', E.ACTIVITY_TYPES);
 
-export const notificationTypeEnum = pgEnum('notification_type', [
-  'hot_lead',
-  'positive_reply',
-  'human_handoff',
-  'appointment_booked',
-  'appointment_upcoming',
-  'ai_failure',
-  'provider_failure',
-  'campaign_completed',
-]);
+export const notificationTypeEnum = pgEnum('notification_type', E.NOTIFICATION_TYPES);
 
-export const providerKindEnum = pgEnum('provider_kind', ['twilio', 'telnyx', 'mock']);
+export const providerKindEnum = pgEnum('provider_kind', E.PROVIDER_KINDS);
 
 /* ------------------------------------------------------- tenancy & identity */
 

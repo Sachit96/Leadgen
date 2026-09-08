@@ -6,7 +6,7 @@ import type {
   MessageStatus,
   PipelineStage,
   ProspectStatus,
-} from '@/lib/db/types';
+} from '@/lib/constants/enums';
 
 /**
  * One place decides what each status looks like, so a prospect that is QUALIFIED

@@ -11,6 +11,7 @@ import {
 } from '@/lib/db/schema';
 import { invalid, notFound } from '@/lib/core/errors';
 import { extractVariables } from '@/lib/core/template';
+import { KNOWN_TEMPLATE_VARIABLES } from '@/lib/constants/enums';
 import { assertCan } from '@/lib/auth/rbac';
 import { recordActivity } from './activity';
 import { listProspectIds, type ProspectFilters } from './contacts';
@@ -268,14 +269,7 @@ export type VariantInput = {
   active?: boolean;
 };
 
-export const MESSAGE_ANGLES = [
-  { key: 'lost_leads', label: 'Lost leads' },
-  { key: 'old_estimates', label: 'Old estimates' },
-  { key: 'speed_to_lead', label: 'Speed-to-lead' },
-  { key: 'follow_up', label: 'Lead follow-up' },
-  { key: 'curiosity', label: 'Curiosity' },
-  { key: 'direct_offer', label: 'Direct offer' },
-] as const;
+export { MESSAGE_ANGLES } from '@/lib/constants/enums';
 
 export async function createVariant(
   ctx: Ctx,
@@ -325,28 +319,10 @@ export async function deleteVariant(ctx: Ctx, variantId: string): Promise<void> 
     );
 }
 
-const KNOWN_VARIABLES = new Set([
-  'first_name',
-  'last_name',
-  'full_name',
-  'company',
-  'city',
-  'province',
-  'industry',
-  'service',
-  'personalization_hook',
-  'owner_name',
-  'reviews',
-  'rating',
-  'website',
-  'sender_name',
-  'offer_name',
-  'company_name',
-]);
 
 export function validateTemplate(template: string): void {
   if (!template.trim()) throw invalid('Message template cannot be empty');
-  const unknown = extractVariables(template).filter((v) => !KNOWN_VARIABLES.has(v));
+  const unknown = extractVariables(template).filter((v) => !KNOWN_TEMPLATE_VARIABLES.has(v));
   if (unknown.length > 0) {
     throw invalid(
       `Unknown variable${unknown.length > 1 ? 's' : ''}: ${unknown.map((v) => `{{${v}}}`).join(', ')}`,

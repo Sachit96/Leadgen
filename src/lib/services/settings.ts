@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import { orgSettings } from '@/lib/db/schema';
 import { DEFAULT_SCORING_CONFIG, parseScoringConfig, type ScoringConfig } from '@/lib/core/scoring';
+import { formatMoney } from '@/lib/core/money';
+
+export { formatMoney };
 import type { Ctx } from '@/lib/auth/context';
 import { assertCan } from '@/lib/auth/rbac';
 
@@ -150,10 +153,3 @@ export async function updateOrgConfig(ctx: Ctx, patch: OrgConfigPatch): Promise<
   return next;
 }
 
-export function formatMoney(cents: number, currency = 'CAD'): string {
-  return new Intl.NumberFormat('en-CA', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
-  }).format(cents / 100);
-}
