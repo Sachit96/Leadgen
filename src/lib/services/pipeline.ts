@@ -6,7 +6,7 @@ import { assertCan } from '@/lib/auth/rbac';
 import { recordActivity } from './activity';
 import { advanceProspectStatus } from './contacts';
 import type { Ctx } from '@/lib/auth/context';
-import type { PipelineDeal, PipelineStage } from '@/lib/db/types';
+import type { PipelineDeal, PipelineStage, ProspectStatus } from '@/lib/db/types';
 import { PIPELINE_STAGES } from '@/lib/db/types';
 
 export { PIPELINE_STAGES };
@@ -27,6 +27,25 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
 const STAGE_ORDER: Record<PipelineStage, number> = Object.fromEntries(
   PIPELINE_STAGES.map((stage, index) => [stage, index]),
 ) as Record<PipelineStage, number>;
+
+/**
+ * The prospect status a deal stage implies.
+ *
+ * Creating a deal must not silently jump the prospect ahead of where the deal
+ * actually is — booking a call is an APPOINTMENT, not an OPPORTUNITY.
+ */
+const PROSPECT_STATUS_FOR_STAGE: Record<PipelineStage, ProspectStatus> = {
+  NEW: 'CONTACTED',
+  CONTACTED: 'CONTACTED',
+  REPLIED: 'REPLIED',
+  QUALIFIED: 'QUALIFIED',
+  APPOINTMENT: 'APPOINTMENT',
+  SHOWED: 'APPOINTMENT',
+  OPPORTUNITY: 'OPPORTUNITY',
+  PROPOSAL: 'OPPORTUNITY',
+  WON: 'WON',
+  LOST: 'LOST',
+};
 
 export type DealRow = {
   deal: PipelineDeal;
@@ -146,7 +165,7 @@ export async function createDeal(ctx: Ctx, input: CreateDealInput): Promise<Pipe
     metadata: { dealId: row!.id },
   });
 
-  await advanceProspectStatus(ctx, input.contactId, 'OPPORTUNITY');
+  await advanceProspectStatus(ctx, input.contactId, PROSPECT_STATUS_FOR_STAGE[row!.stage]);
   return row!;
 }
 
@@ -203,8 +222,7 @@ export async function moveDeal(
     metadata: { dealId, from: deal.stage, to: stage },
   });
 
-  if (stage === 'WON') await advanceProspectStatus(ctx, deal.contactId, 'WON');
-  if (stage === 'LOST') await advanceProspectStatus(ctx, deal.contactId, 'LOST');
+  await advanceProspectStatus(ctx, deal.contactId, PROSPECT_STATUS_FOR_STAGE[stage]);
 }
 
 /**
@@ -255,6 +273,8 @@ export async function moveDealForContact(
     campaignId: existing.campaignId,
     metadata: { dealId: existing.id, automatic: true },
   });
+
+  await advanceProspectStatus(ctx, contactId, PROSPECT_STATUS_FOR_STAGE[stage]);
 }
 
 export async function updateDeal(

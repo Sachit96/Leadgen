@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "On Radar — AI-powered outbound sales operating system",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -21,6 +23,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.44.6",
     "next": "^15.5.4",
     "pg": "^8.16.3",

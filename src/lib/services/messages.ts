@@ -9,7 +9,7 @@ import { recordActivity } from './activity';
 import { enqueue } from './queue';
 import { isSuppressed } from './suppression';
 import { isStopped } from './conversations';
-import type { Ctx } from '@/lib/auth/context';
+import { actorId, type Ctx } from '@/lib/auth/context';
 import type { Message, MessageAuthor, MessageStatus } from '@/lib/db/types';
 import type { DeliveryUpdate, NormalizedStatus, ProviderKind } from '@/lib/providers/sms';
 
@@ -82,7 +82,7 @@ export async function queueOutbound(ctx: Ctx, input: QueueOutboundInput): Promis
       stepId: input.stepId ?? null,
       variantId: input.variantId ?? null,
       promptVersion: input.promptVersion ?? null,
-      sentByUserId: input.author === 'HUMAN' ? ctx.userId : null,
+      sentByUserId: input.author === 'HUMAN' ? actorId(ctx) : null,
       segments: info.segments,
     })
     .returning();

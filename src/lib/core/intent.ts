@@ -30,14 +30,19 @@ const OPT_OUT_KEYWORDS = [
   'leave me alone',
 ];
 
+/**
+ * Only explicit wrong-number claims belong here, because this intent
+ * suppresses the number permanently. "Who is this?" is far more often a
+ * curious prospect than a misdirected text, so it is handled as a question
+ * (and as a handoff signal) rather than as grounds for suppression.
+ */
 const WRONG_NUMBER = [
   'wrong number',
   'wrong person',
-  'who is this',
-  "who's this",
   'you have the wrong',
-  'not me',
   'i think you have the wrong',
+  'this is not',
+  'no one here by that name',
 ];
 
 const POSITIVE = [
@@ -127,6 +132,7 @@ export function classifyInbound(text: string): ClassificationResult {
 const HANDOFF_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\b(speak|talk|chat)\s+(to|with)\s+(a\s+)?(human|person|someone|real)/i, reason: 'Asked to speak with a human' },
   { pattern: /\bare you (a )?(bot|robot|ai|human|real)\b/i, reason: 'Asked whether they are talking to a bot' },
+  { pattern: /\bwho('s| is| are) (this|you)\b/i, reason: 'Asked who is contacting them' },
   { pattern: /\b(lawyer|attorney|legal|lawsuit|sue|tcpa|cease and desist)\b/i, reason: 'Legal language used' },
   { pattern: /\b(contract|terms|invoice|refund|billing)\b/i, reason: 'Contract or billing question' },
   { pattern: /\b(discount|negotiate|lower price|best price|price match)\b/i, reason: 'Pricing negotiation' },

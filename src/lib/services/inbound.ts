@@ -141,8 +141,9 @@ export async function handleInboundMessage(
   // A reply always halts the sequence — no prospect gets step 3 after they
   // have answered step 2.
   const cancelled = await cancelJobsForConversation(conversation.id, 'prospect replied');
-  await stopSequenceMemberships(ctx, contact.id, 'replied');
 
+  // Opt-out is handled before the generic "replied" stop so the membership ends
+  // as STOPPED with the suppression reason, not as a completed sequence.
   if (isOptOut(inbound.body)) {
     await suppress(ctx, {
       phone,
@@ -160,6 +161,8 @@ export async function handleInboundMessage(
       optOut: true,
     };
   }
+
+  await stopSequenceMemberships(ctx, contact.id, 'replied');
 
   if (classification.intent === 'wrong_number') {
     await suppress(ctx, {
