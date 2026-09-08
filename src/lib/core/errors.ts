@@ -60,7 +60,9 @@ export function actionOk<T>(data: T): ActionResult<T> {
   return { ok: true, data };
 }
 
-export function actionFail(e: unknown): ActionResult<never> {
+export type ActionFailure = { ok: false; code: AppErrorCode; error: string };
+
+export function actionFail(e: unknown): ActionFailure {
   if (isAppError(e)) return { ok: false, code: e.code, error: e.message };
   return { ok: false, code: 'INTERNAL', error: errorMessage(e) };
 }
