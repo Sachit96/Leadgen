@@ -1,6 +1,6 @@
 # Architecture Audit
 
-**Date:** 2026-09-08
+**Date:** 2026-09-08 (updated 2026-09-09)
 **Branch:** `claude/on-radar-ai-sms-sales-up2jof`
 **Auditor:** Claude Code
 
@@ -124,3 +124,48 @@ These are enforced by review, and violations are visible in imports:
 | Opt-out failing to register | STOP detection is deterministic string matching in `lib/core/intent.ts`, evaluated before any model call, and writes a suppression row that blocks every future automated send. |
 | Tenant leakage | `organization_id` predicate on every service query; RLS policies for Supabase; no client-supplied org identifiers are trusted. |
 | Cost blowout on AI | Two-tier model routing, cached company research, per-run cost logging in `ai_runs`. |
+
+
+---
+
+## 6. Verification record
+
+The build was verified against real infrastructure, not only the test suite.
+
+**Automated** — `npm run verify` (typecheck, lint, 64 tests) and `next build`
+all pass. The suite runs the real migrations against in-process Postgres
+(PGlite) with mock providers, so constraints and indexes are exercised rather
+than mocked.
+
+**Against Postgres 16** — migrated, seeded, and driven through the built
+production server:
+
+| Checked | Result |
+|---|---|
+| Migrations against real Postgres | applied clean |
+| Seed | 6 companies, 6 prospects, 5 conversations, 25 messages, 2 appointments, 2 deals, 6 prompts, 7 knowledge entries, 9 objections |
+| Scoring | computed from research, 100/A down to 65/B, each with its rule breakdown |
+| Sign-in and every screen | rendered with real data |
+| Prospect creation | created, scored C·50, 5 rule rows explaining why |
+| Duplicate phone | refused: "A prospect with that phone number already exists" |
+| Invalid phone | refused: `"123" is not a valid phone number (too_short)` |
+| Faceted filters | 7 prospects → 2 on bucket B |
+| Inbound webhook | classified `positive` |
+| Webhook replay | `duplicate: true`, no second message |
+| Worker tick, no token | 401 |
+| Worker tick, with token | AI replied, message queued |
+| Quiet hours | reply held at 21:06 Toronto, rescheduled to 09:00 local |
+| Send after opening the window | `SENT`, provider message id recorded |
+
+**What that found.** One real bug that every automated check passed over:
+`buttonClass` was exported from a `'use client'` module, so every server
+component that styled a `<Link>` with it threw at request time. Typecheck, lint,
+the tests and `next build` were all green; only loading the page in a browser
+surfaced it. The lesson is recorded here because it generalizes — the client/
+server boundary is not a type error, and nothing but running the app catches it.
+
+Four further bugs were found by writing the tests, and are described in the
+commit that introduced them: a foreign-key violation on system-sent messages, a
+deal creation that jumped the prospect two CRM stages, an opt-out that ended a
+campaign membership as "completed" rather than "stopped", and "Who is this?"
+being treated as a wrong number and permanently suppressing the contact.
