@@ -2,7 +2,7 @@ import { requireCtx } from '@/lib/auth/context';
 import { listPipeline } from '@/lib/services/pipeline';
 import { getOrgConfig } from '@/lib/services/settings';
 import { PageHeader } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { PipelineBoard } from './board';
 
 export const dynamic = 'force-dynamic';

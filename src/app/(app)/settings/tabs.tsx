@@ -6,7 +6,7 @@ import type { integrationStatus } from '@/lib/env';
 import type { UserRole } from '@/lib/db/types';
 import { formatPhone } from '@/lib/core/phone';
 import { formatRelative } from '@/lib/core/time';
-import { Badge, Card, Field, Stat, cn, inputClass, selectClass } from '@/components/ui/primitives';
+import { Badge, Card, Field, Stat, cn, inputClass } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/buttons';
 import { ActionButton, ActionForm } from '@/components/ui/action-form';
 import {

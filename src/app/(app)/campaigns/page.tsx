@@ -4,7 +4,7 @@ import { listCampaigns } from '@/lib/services/campaigns';
 import { campaignPerformance, resolveRange } from '@/lib/services/analytics';
 import { formatRelative } from '@/lib/core/time';
 import { Card, EmptyState, PageHeader, Table, Td, Th } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { CampaignStatusBadge } from '@/components/ui/status';
 import { WorkerButton } from './worker-button';
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requireCtx } from '@/lib/auth/context';
 import { listCampaigns } from '@/lib/services/campaigns';
 import { PageHeader } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { ImportWizard } from './wizard';
 
 export const dynamic = 'force-dynamic';

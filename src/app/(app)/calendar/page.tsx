@@ -2,7 +2,7 @@ import { requireCtx } from '@/lib/auth/context';
 import { availability, listAppointments } from '@/lib/services/appointments';
 import { integrationStatus } from '@/lib/env';
 import { Card, PageHeader, SectionTitle, Stat } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { CalendarView } from './calendar-view';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export default async function CalendarPage() {
   const ctx = await requireCtx('appointment:write');
 
-  const from = new Date();
+  const renderedAt = new Date();
+  const from = new Date(renderedAt);
   from.setHours(0, 0, 0, 0);
   const to = new Date(from.getTime() + 21 * 24 * 60 * 60_000);
 
@@ -67,6 +68,7 @@ export default async function CalendarPage() {
               conversationId: appointment.conversationId,
             }))}
             canWrite={ctx.role !== 'VIEWER'}
+            now={renderedAt.getTime()}
           />
         </div>
 

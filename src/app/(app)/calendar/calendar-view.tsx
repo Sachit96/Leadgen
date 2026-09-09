@@ -38,9 +38,12 @@ const STATUS_TONES: Record<AppointmentStatus, 'accent' | 'positive' | 'warning' 
 export function CalendarView({
   appointments,
   canWrite,
+  now,
 }: {
   appointments: Appointment[];
   canWrite: boolean;
+  /** Rendered on the server so the client does not read the clock mid-render. */
+  now: number;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -48,7 +51,6 @@ export function CalendarView({
   const [rescheduling, setRescheduling] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
 
-  const now = Date.now();
   const visible = appointments.filter((a) =>
     showPast ? true : new Date(a.startsAt).getTime() >= now - 60 * 60_000,
   );

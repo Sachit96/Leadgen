@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { contacts, conversations, messageEvents, messages } from '@/lib/db/schema';
 import { AppError, invalid, notFound } from '@/lib/core/errors';
 import { segmentInfo } from '@/lib/core/template';
-import { assertCan } from '@/lib/auth/rbac';
 import { recordActivity } from './activity';
 import { enqueue } from './queue';
 import { isSuppressed } from './suppression';
@@ -299,7 +298,13 @@ const STATUS_RANK: Record<MessageStatus, number> = {
   FAILED: 4,
 };
 
-/** Automated messages sent to one contact since midnight — cooldown input. */
+/**
+ * Automated messages actually sent to one contact since midnight.
+ *
+ * Counted on `sentAt`, not `createdAt`: a queued message has not reached the
+ * prospect, and counting it would make a batch block itself the moment it was
+ * enqueued rather than after it was delivered.
+ */
 export async function automatedSentToday(ctx: Ctx, contactId: string): Promise<number> {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
@@ -312,7 +317,7 @@ export async function automatedSentToday(ctx: Ctx, contactId: string): Promise<n
         eq(messages.contactId, contactId),
         eq(messages.direction, 'OUTBOUND'),
         sql`${messages.author} in ('AI','SYSTEM')`,
-        gte(messages.createdAt, midnight),
+        gte(messages.sentAt, midnight),
       ),
     );
   return rows[0]?.count ?? 0;
@@ -328,25 +333,26 @@ export async function orgSentToday(ctx: Ctx): Promise<number> {
       and(
         eq(messages.organizationId, ctx.organizationId),
         eq(messages.direction, 'OUTBOUND'),
-        sql`${messages.status} <> 'DRAFT'`,
-        gte(messages.createdAt, midnight),
+        gte(messages.sentAt, midnight),
       ),
     );
   return rows[0]?.count ?? 0;
 }
 
+/** When the last message actually went out — the cooldown reference point. */
 export async function lastOutboundAt(ctx: Ctx, contactId: string): Promise<Date | null> {
   const rows = await getDb()
-    .select({ sentAt: messages.createdAt })
+    .select({ sentAt: messages.sentAt })
     .from(messages)
     .where(
       and(
         eq(messages.organizationId, ctx.organizationId),
         eq(messages.contactId, contactId),
         eq(messages.direction, 'OUTBOUND'),
+        isNotNull(messages.sentAt),
       ),
     )
-    .orderBy(desc(messages.createdAt))
+    .orderBy(desc(messages.sentAt))
     .limit(1);
   return rows[0]?.sentAt ?? null;
 }

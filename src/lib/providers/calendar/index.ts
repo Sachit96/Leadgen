@@ -27,7 +27,6 @@ export class InternalCalendarProvider implements CalendarProvider {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __onRadarCalendarProvider: CalendarProvider | undefined;
 }
 

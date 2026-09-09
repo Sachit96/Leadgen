@@ -4,7 +4,7 @@ import { formatRelative } from '@/lib/core/time';
 import { formatPhone } from '@/lib/core/phone';
 import { campaignPerformance, funnelMetrics, resolveRange } from '@/lib/services/analytics';
 import { listInbox } from '@/lib/services/conversations';
-import { listAppointments, formatSlot } from '@/lib/services/appointments';
+import { listAppointments } from '@/lib/services/appointments';
 import { listOpenTasks } from '@/lib/services/tasks';
 import { formatMoney, getOrgConfig } from '@/lib/services/settings';
 import { queueStats } from '@/lib/services/queue';
@@ -17,7 +17,7 @@ import {
   Stat,
   Meter,
 } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { ConversationStateBadge, TemperatureBadge } from '@/components/ui/status';
 import { TaskRow } from './task-row';
 
@@ -31,6 +31,7 @@ export const dynamic = 'force-dynamic';
  */
 export default async function TodayPage() {
   const ctx = await requireCtx();
+  const now = new Date();
   const range = resolveRange('today');
   const thirty = resolveRange('30d');
 
@@ -293,7 +294,11 @@ export default async function TodayPage() {
               <Card padded={false}>
                 <ul className="divide-y divide-ink-800">
                   {tasks.map((row) => (
-                    <TaskRow key={row.task.id} row={row} />
+                    <TaskRow
+                      key={row.task.id}
+                      row={row}
+                      overdue={row.task.dueAt ? row.task.dueAt < now : false}
+                    />
                   ))}
                 </ul>
               </Card>

@@ -20,7 +20,7 @@ import {
   Td,
   Th,
 } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { CampaignStatusBadge, ProspectStatusBadge } from '@/components/ui/status';
 import { SequenceBuilder } from './sequence-builder';
 import { CampaignControls } from './controls';

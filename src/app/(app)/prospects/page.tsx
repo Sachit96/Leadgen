@@ -11,7 +11,7 @@ import { listIndustries } from '@/lib/services/companies';
 import { listCampaigns } from '@/lib/services/campaigns';
 import { PROSPECT_STATUSES, type ProspectStatus } from '@/lib/db/types';
 import { PageHeader, Stat } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { ProspectsTable } from './prospects-table';
 import { ProspectFiltersBar } from './filters-bar';
 

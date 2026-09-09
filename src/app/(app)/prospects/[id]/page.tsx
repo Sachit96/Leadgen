@@ -8,7 +8,7 @@ import { buildPersonalizationContext } from '@/lib/services/personalization';
 import { formatPhone } from '@/lib/core/phone';
 import { formatRelative } from '@/lib/core/time';
 import { Card, PageHeader, SectionTitle, cn } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { ProspectStatusBadge, ScoreBadge } from '@/components/ui/status';
 import { ProspectEditor } from './editor';
 

@@ -2,12 +2,29 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { InboxFilter, InboxRow } from '@/lib/services/conversations';
 import { formatPhone } from '@/lib/core/phone';
 import { formatRelative } from '@/lib/core/time';
 import { cn, Badge, Dot } from '@/components/ui/primitives';
 import { ScoreBadge } from '@/components/ui/status';
+
+type LoadedPage = { key: string; rows: InboxRow[]; total: number };
+
+/**
+ * Fetches one filtered page. Kept outside the component and free of any state
+ * so effects only ever hand its result to setState in a callback.
+ */
+async function fetchInbox(filter: InboxFilter, search: string): Promise<LoadedPage> {
+  const url = new URLSearchParams();
+  if (filter !== 'all') url.set('filter', filter);
+  if (search) url.set('q', search);
+
+  const response = await fetch(`/api/inbox?${url}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Inbox request failed with ${response.status}`);
+  const data = (await response.json()) as { rows: InboxRow[]; total: number };
+  return { key: `${filter}|${search}`, rows: data.rows, total: data.total };
+}
 
 const FILTER_LABELS: Array<{ key: InboxFilter; label: string }> = [
   { key: 'all', label: 'All' },
@@ -27,44 +44,42 @@ export function ConversationList() {
   const filter = (params.get('filter') ?? 'all') as InboxFilter;
   const search = params.get('q') ?? '';
 
+  // Keyed on the applied search so a navigation resets the box without an
+  // effect syncing prop into state.
   const [query, setQuery] = useState(search);
-  const [rows, setRows] = useState<InboxRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    const url = new URLSearchParams();
-    if (filter !== 'all') url.set('filter', filter);
-    if (search) url.set('q', search);
-    try {
-      const response = await fetch(`/api/inbox?${url}`, { cache: 'no-store' });
-      if (!response.ok) return;
-      const data = (await response.json()) as { rows: InboxRow[]; total: number };
-      setRows(data.rows);
-      setTotal(data.total);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, search]);
+  // The loaded page is tagged with the filter that produced it, so "loading" is
+  // derived from a stale tag rather than tracked in its own state.
+  const viewKey = `${filter}|${search}`;
+  const [loaded, setLoaded] = useState<LoadedPage | null>(null);
+  const loading = loaded?.key !== viewKey;
+  const rows = loaded?.rows ?? [];
+  const total = loaded?.total ?? 0;
 
   useEffect(() => {
-    setLoading(true);
-    void load();
-  }, [load]);
+    let cancelled = false;
+    fetchInbox(filter, search).then(
+      (page) => {
+        if (!cancelled) setLoaded(page);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, search]);
 
   // Live refresh: when the activity feed reports something new, refetch the
   // list rather than mutating a stale copy client-side.
   useEffect(() => {
     const source = new EventSource('/api/stream');
     source.addEventListener('activity', () => {
-      void load();
+      fetchInbox(filter, search).then(setLoaded, () => undefined);
       router.refresh();
     });
     source.onerror = () => source.close();
     return () => source.close();
-  }, [load, router]);
-
-  useEffect(() => setQuery(search), [search]);
+  }, [filter, search, router]);
 
   const selectedId = pathname.startsWith('/inbox/') ? pathname.slice('/inbox/'.length) : null;
 
@@ -88,6 +103,7 @@ export function ConversationList() {
       <div className="border-b border-ink-700 p-3">
         <form onSubmit={applySearch}>
           <input
+            key={search}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

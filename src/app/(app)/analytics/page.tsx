@@ -19,7 +19,7 @@ import {
   Td,
   Th,
 } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { BarChart, FunnelChart, LineChart } from '@/components/ui/charts';
 import { RangePicker } from './range-picker';
 

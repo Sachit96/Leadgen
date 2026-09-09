@@ -41,10 +41,13 @@
     "drizzle-kit": "^0.31.5",
     "eslint": "^9.36.0",
     "eslint-config-next": "^15.5.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "playwright": "^1.63.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^3.2.4"
   }
 }

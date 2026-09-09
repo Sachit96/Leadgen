@@ -12,9 +12,7 @@ import { env } from '@/lib/env';
 export type Db = NodePgDatabase<typeof schema>;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __onRadarPool: Pool | undefined;
-  // eslint-disable-next-line no-var
   var __onRadarDb: Db | undefined;
 }
 

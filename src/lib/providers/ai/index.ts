@@ -8,7 +8,6 @@ export { MockAiProvider } from './mock';
 export { AnthropicProvider } from './anthropic';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __onRadarAiProvider: AiProvider | undefined;
 }
 

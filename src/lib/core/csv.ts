@@ -6,7 +6,7 @@
  * "close enough" parsing is how imports silently corrupt a prospect list.
  */
 export function parseCsv(input: string): string[][] {
-  const text = input.replace(/^﻿/, '');
+  const text = input.replace(/^\uFEFF/, '');
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';

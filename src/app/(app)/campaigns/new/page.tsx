@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { requireCtx } from '@/lib/auth/context';
 import { Card, PageHeader } from '@/components/ui/primitives';
-import { buttonClass } from '@/components/ui/buttons';
+import { buttonClass } from '@/components/ui/button-styles';
 import { NewCampaignForm } from './form';
 
 export const dynamic = 'force-dynamic';

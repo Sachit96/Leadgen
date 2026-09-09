@@ -7,11 +7,9 @@ import { completeTaskAction } from '@/app/actions/tasks';
 import { useToast } from '@/components/ui/toast';
 import { formatRelative } from '@/lib/core/time';
 
-export function TaskRow({ row }: { row: TaskRowType }) {
+export function TaskRow({ row, overdue }: { row: TaskRowType; overdue: boolean }) {
   const [pending, startTransition] = useTransition();
   const toast = useToast();
-
-  const overdue = row.task.dueAt ? row.task.dueAt.getTime() < Date.now() : false;
 
   return (
     <li className="flex items-start gap-2.5 p-3">

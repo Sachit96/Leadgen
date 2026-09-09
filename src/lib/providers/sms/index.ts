@@ -10,7 +10,6 @@ export { TwilioProvider } from './twilio';
 export { TelnyxProvider } from './telnyx';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __onRadarSmsProvider: SmsProvider | undefined;
 }
 

@@ -262,6 +262,13 @@ async function buildStepMessage(
   return { ok: true, body: rendered.text, variantId: variant.id, promptVersion: null };
 }
 
+/**
+ * Counts messages already queued or sent for this campaign today.
+ *
+ * Unlike the org-level cap, this one counts queued rows deliberately: the
+ * sequence runner would otherwise enqueue the whole audience in one pass before
+ * a single message had been sent, and the cap would never bite.
+ */
 async function campaignAtCapacity(campaignId: string, dailyCapacity: number): Promise<boolean> {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
