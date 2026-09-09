@@ -241,7 +241,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                 value={company?.websiteQualityScore ?? 0}
                 max={100}
                 tone="neutral"
-                caption={company?.websiteQuality ?? 'not crawled'}
+                // A null score is "never measured", not zero — say which, rather
+                // than showing a 0 next to a quality label it did not produce.
+                caption={
+                  company?.websiteQualityScore === null || company?.websiteQualityScore === undefined
+                    ? 'not scored'
+                    : (company.websiteQuality ?? '')
+                }
               />
             </div>
           </Card>

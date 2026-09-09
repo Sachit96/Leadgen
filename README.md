@@ -14,9 +14,12 @@ modular monolith.
 ## The loop
 
 ```
-prospects → enrichment → scoring → personalization → campaign
-    → SMS sequence → inbound reply → AI conversation → qualification
-    → human handoff when needed → appointment → pipeline → revenue → analytics
+market search → discovery → dedupe → CRM → website crawl → research → scoring
+    → personalization → review
+        ├── campaign → SMS sequence → inbound reply → AI conversation
+        └── call queue → call → disposition
+    → qualification → human handoff when needed
+    → appointment → pipeline → revenue → analytics
 ```
 
 Every arrow in that chain is implemented, tested end to end, and visible in the
@@ -63,8 +66,10 @@ npm run worker     # the worker, in a second terminal
 ```
 
 With no third-party credentials the app runs fully on mocks: the SMS provider,
-the AI provider and the calendar all have real in-process implementations of the
-same interfaces. The queue, delivery tracking, guardrails, conversation engine
+the AI provider, lead discovery and the calendar all have real in-process
+implementations of the same interfaces. Synthetic discovery only ever produces
+phone numbers in the 555-01xx range reserved for fiction and `.example` domains,
+so a demo cannot reach a real business by accident. The queue, delivery tracking, guardrails, conversation engine
 and analytics all behave exactly as they will in production — no message reaches
 a real phone, and Settings → Integrations always shows which mode each
 integration is actually in.
@@ -73,7 +78,11 @@ integration is actually in.
 
 `npm run db:seed` creates six researched contractor companies (roofing, HVAC,
 plumbing, landscaping), scored prospects, five live conversations with real
-transcripts, a booked appointment, a completed call and a won deal. The
+transcripts, a booked appointment, a completed call and a won deal. It then runs
+three market searches through the real lead pipeline — discovery, dedupe,
+promotion, crawl, research, scoring, personalization — and builds a call queue
+from what comes out, so `/calls` opens on a real book of leads rather than
+fixtures shaped like one. The
 dashboard, funnel, campaign table and variant results on first load are computed
 from those rows — none of it is hardcoded.
 
@@ -140,6 +149,35 @@ evaluated before any model call. A suppression row blocks every future automated
 send, stops the campaign membership, cancels queued jobs and closes the
 conversation. Numbers that opted out themselves cannot be un-suppressed from the
 UI — that consent is theirs to give back.
+
+### Leads are prospects, not a second database
+
+Lead generation writes into the CRM that already exists. A discovered business
+becomes a `companies` row and a `contacts` row; the lead inbox is a view over
+those, and approving a lead marks it ready to work rather than moving it
+anywhere. There is no parallel prospect store to reconcile.
+
+Discovery, dedupe, crawling, research, scoring and personalization are separate
+jobs on one queue, so a site that will not load fails one lead rather than a
+batch, and any stage can be re-run on one record from the review screen.
+Duplicates are recorded with the evidence that matched them — nothing is
+silently deleted.
+
+### The app never claims a call connected
+
+Calls are placed by the operator's own phone, through a `tel:` link. What the
+app can observe is that someone pressed dial, so that is the only outcome it
+writes on its own: `INITIATED`, with `connection_reported` false.
+
+Everything after that is the operator's report, and the product says so
+everywhere it matters — the call screen, the calls page, analytics and Settings
+all label contact rate as operator-reported rather than publishing a connect
+rate the system never measured. The `CallProvider` interface carries a
+`reportsConnection` flag precisely so adding a voice provider is what makes that
+number real, rather than a copy change.
+
+Queue position is a stored integer, not browser state: close the tab at 37 of
+155 and you come back to 37 of 155.
 
 ### The AI is a stateful SDR, not a chatbot
 
