@@ -259,10 +259,14 @@ async function loadPageText(companyId: string): Promise<string> {
     .orderBy(desc(leadEnrichment.version))
     .limit(1);
 
-  const output = rows[0]?.output as { description?: string; services?: string[]; title?: string } | undefined;
+  const output = rows[0]?.output as
+    | { description?: string; services?: string[]; title?: string; text?: string }
+    | undefined;
   if (!output) return '(no website content was captured for this business)';
 
-  return [output.title, output.description, output.services?.join(', ')].filter(Boolean).join('\n');
+  const parts = [output.title, output.description, output.services?.join(', '), output.text];
+  const joined = parts.filter(Boolean).join('\n');
+  return joined || '(the site was reachable but no readable text was captured)';
 }
 
 function line(label: string, value: unknown): string | null {

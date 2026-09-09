@@ -36,6 +36,9 @@ import { enqueueLeadJob, enqueueMany, type ClaimedLeadJob } from './lead-jobs';
  * by enqueuing the next one, which keeps the flow explicit and restartable at
  * any point.
  */
+/** Enough for the research agent; far short of a whole site. */
+const MAX_STORED_PAGE_TEXT = 20_000;
+
 export type StageResult =
   | { result: 'ok'; detail?: string }
   | { result: 'skipped'; reason: string }
@@ -381,6 +384,11 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
       socialUrls: site.socialUrls,
       bookingLinks: site.bookingLinks,
       quality,
+      // The readable page text, capped. Research reads this; without it the
+      // agent only ever saw the title and meta description and had almost
+      // nothing to work from. Already stripped of scripts, styles and markup,
+      // and still treated as untrusted where it reaches the model.
+      text: site.text.slice(0, MAX_STORED_PAGE_TEXT),
     },
     pagesFetched: crawl.pages.length,
     bytesFetched: crawl.bytesFetched,

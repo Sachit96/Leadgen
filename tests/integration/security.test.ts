@@ -8,7 +8,12 @@ import { createProspect, getProspect, listProspects } from '@/lib/services/conta
 import { getCampaign, listCampaigns } from '@/lib/services/campaigns';
 import { getOrCreateConversation, getConversation, listInbox } from '@/lib/services/conversations';
 import { listMessages, queueOutbound } from '@/lib/services/messages';
-import { funnelMetrics, resolveRange } from '@/lib/services/analytics';
+import { funnelMetrics, leadFunnel, resolveRange } from '@/lib/services/analytics';
+import { createSearchJob, getSearchJob, listSearchJobs, startSearchJob } from '@/lib/services/lead-search';
+import { getLeadDetail, leadViewCounts, listLeads } from '@/lib/services/leads';
+import { createCallQueue, currentQueuePosition, getCallQueue, listCallQueues } from '@/lib/services/call-queue';
+import { initiateCall, listCallHistory, recordDisposition } from '@/lib/services/calls';
+import { tick } from '@/lib/worker/tick';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
 import { createSession, resolveSession, destroySession } from '@/lib/auth/session';
 import { can, assertCan } from '@/lib/auth/rbac';
@@ -100,6 +105,63 @@ describe('tenant isolation', () => {
     ).rejects.toThrow(/not found/i);
 
     expect(await listMessages(other, theirConversation.id)).toHaveLength(0);
+  });
+
+  /**
+   * Lead generation and calling add several tables that hold another
+   * organization's prospects and phone numbers. Isolation is asserted here
+   * rather than assumed from the query being written correctly once.
+   */
+  it('never leaks another organization leads, queues or calls', async () => {
+    // Their search runs the whole pipeline; ours never runs at all.
+    const theirSearch = await createSearchJob(other, {
+      query: 'roofing',
+      location: 'Hamilton, ON',
+      requestedCount: 6,
+      filters: { requirePhone: true },
+    });
+    await startSearchJob(other, theirSearch.id);
+    for (let i = 0; i < 40; i += 1) {
+      const result = await tick({ sendBatch: 0, sequenceBatch: 0, aiBatch: 0, leadBatch: 25, skipMaintenance: true });
+      if (result.leads.claimed === 0) break;
+    }
+
+    const theirLeads = await listLeads(other, { filters: { view: 'CALL_READY' } });
+    expect(theirLeads.total).toBeGreaterThan(0);
+    const theirLead = theirLeads.rows[0]!;
+
+    const theirQueue = await createCallQueue(other, { name: 'Theirs', filters: {} });
+    expect(theirQueue.totalCount).toBeGreaterThan(0);
+
+    // Nothing of theirs is visible to us through any list...
+    expect((await listLeads(h.ctx)).total).toBe(0);
+    expect((await leadViewCounts(h.ctx)).ALL).toBe(0);
+    expect(await listSearchJobs(h.ctx)).toHaveLength(0);
+    expect(await listCallQueues(h.ctx)).toHaveLength(0);
+    expect((await leadFunnel(h.ctx, resolveRange('all'))).discovered).toBe(0);
+
+    // ...and knowing an id is not authorization.
+    await expect(getSearchJob(h.ctx, theirSearch.id)).rejects.toThrow(/not found/i);
+    await expect(getCallQueue(h.ctx, theirQueue.id)).rejects.toThrow(/not found/i);
+    await expect(getLeadDetail(h.ctx, theirLead.contactId)).rejects.toThrow(/not found/i);
+
+    // The queue is theirs, so it hands us nothing to dial.
+    expect(await currentQueuePosition(h.ctx, theirQueue.id)).toBeNull();
+    expect(await listCallHistory(h.ctx, theirLead.contactId)).toHaveLength(0);
+  });
+
+  it('refuses to dial or disposition another organization prospect', async () => {
+    const theirs = await createProspect(other, {
+      phone: '4165551005',
+      company: { name: 'Their Roofing', city: 'Toronto', industry: 'Roofing' },
+    });
+
+    await expect(initiateCall(h.ctx, { contactId: theirs.id })).rejects.toThrow(/not found/i);
+    await expect(
+      recordDisposition(h.ctx, { contactId: theirs.id, outcome: 'NO_ANSWER' }),
+    ).rejects.toThrow(/not found/i);
+
+    expect(await listCallHistory(other, theirs.id)).toHaveLength(0);
   });
 });
 
