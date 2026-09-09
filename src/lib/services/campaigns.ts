@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { outer } from '@/lib/db/sql';
 import { getDb } from '@/lib/db';
 import {
   campaignMemberships,
@@ -41,16 +42,16 @@ export async function listCampaigns(ctx: Ctx) {
       campaign: campaigns,
       prospects: sql<number>`(
         select count(*)::int from ${campaignMemberships} cm
-        where cm.campaign_id = ${campaigns.id} and cm.status <> 'STOPPED'
+        where cm.campaign_id = ${outer(campaigns.id)} and cm.status <> 'STOPPED'
       )`,
       sent: sql<number>`(
         select count(*)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.direction = 'OUTBOUND'
+        where m.campaign_id = ${outer(campaigns.id)} and m.direction = 'OUTBOUND'
           and m.status in ('SENT','DELIVERED')
       )`,
       replies: sql<number>`(
         select count(*)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.direction = 'INBOUND'
+        where m.campaign_id = ${outer(campaigns.id)} and m.direction = 'INBOUND'
       )`,
     })
     .from(campaigns)

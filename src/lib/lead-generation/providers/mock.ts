@@ -71,7 +71,9 @@ export class MockDiscoveryProvider implements LeadDiscoveryProvider {
       throw new DiscoveryError('Mock discovery failure', { code: 'MOCK_FAILURE', retryable: true });
     }
 
-    const trade = request.query.trim().toLowerCase() || 'contracting';
+    // "roofing contractor" and "roofing" should both read as one trade, not
+    // produce "Roofing Contractor contractor" in every generated name.
+    const trade = request.query.trim().toLowerCase().replace(/\s*(contractor|contractors|company|companies|services?)$/, '') || 'contracting';
     const city = request.location.split(',')[0]!.trim() || 'Toronto';
     const province = request.location.includes(',')
       ? request.location.split(',')[1]!.trim().toUpperCase()

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { outer } from '@/lib/db/sql';
 import { getDb } from '@/lib/db';
 import {
   callAttempts,
@@ -223,7 +224,7 @@ export async function listCallQueues(ctx: Ctx) {
       queue: callQueues,
       remaining: sql<number>`(
         select count(*)::int from ${callQueueItems} i
-        where i.queue_id = ${callQueues.id} and i.status in ('PENDING','CURRENT')
+        where i.queue_id = ${outer(callQueues.id)} and i.status in ('PENDING','CURRENT')
       )`,
     })
     .from(callQueues)

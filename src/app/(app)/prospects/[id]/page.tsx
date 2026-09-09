@@ -6,6 +6,8 @@ import { getProspect } from '@/lib/services/contacts';
 import { listActivityForContact } from '@/lib/services/activity';
 import { buildPersonalizationContext } from '@/lib/services/personalization';
 import { formatPhone } from '@/lib/core/phone';
+import { telUri } from '@/lib/providers/call';
+import { CallLink } from '@/components/call-link';
 import { formatRelative } from '@/lib/core/time';
 import { Card, PageHeader, SectionTitle, cn } from '@/components/ui/primitives';
 import { buttonClass } from '@/components/ui/button-styles';
@@ -47,6 +49,12 @@ export default async function ProspectPage({ params }: { params: Promise<{ id: s
             <Link href="/prospects" className={buttonClass('ghost')}>
               ← All prospects
             </Link>
+            <CallLink
+              contactId={contact.id}
+              phone={formatPhone(contact.phone)}
+              dialUri={contact.phoneInvalid ? null : telUri(contact.phone)}
+              disabled={ctx.role === 'VIEWER' || contact.status === 'DO_NOT_CONTACT'}
+            />
             {conversation ? (
               <Link href={`/inbox/${conversation.id}`} className={buttonClass('primary')}>
                 Open conversation

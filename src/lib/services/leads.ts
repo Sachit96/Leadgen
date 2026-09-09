@@ -1,4 +1,5 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import { outer } from '@/lib/db/sql';
 import { getDb } from '@/lib/db';
 import {
   callAttempts,
@@ -148,7 +149,7 @@ export async function listLeads(
       isDemo: contacts.isDemo,
       lastActivityAt: contacts.lastActivityAt,
       hasPersonalization: sql<boolean>`exists (
-        select 1 from ${leadPersonalization} lp where lp.contact_id = ${contacts.id}
+        select 1 from ${leadPersonalization} lp where lp.contact_id = ${outer(contacts.id)}
       )`,
     })
     .from(contacts)
@@ -193,7 +194,7 @@ export async function leadViewCounts(ctx: Ctx): Promise<Record<string, number>> 
       duplicates: sql<number>`count(*) filter (where ${leadDiscoveryRecords.stage} = 'DUPLICATE')::int`,
       callReady: sql<number>`count(*) filter (where ${contacts.callReadiness} in ('READY','QUEUED'))::int`,
       campaignReady: sql<number>`count(*) filter (where exists (
-        select 1 from ${leadPersonalization} lp where lp.contact_id = ${contacts.id}
+        select 1 from ${leadPersonalization} lp where lp.contact_id = ${outer(contacts.id)}
       ))::int`,
     })
     .from(contacts)

@@ -358,6 +358,40 @@ export async function listCallHistory(ctx: Ctx, contactId: string, limit = 50): 
 }
 
 /**
+ * Callbacks that are due.
+ *
+ * Driven by `nextCallbackAt` on the prospect rather than by the task list, so a
+ * callback promised on a call is owed even if the task was closed elsewhere.
+ */
+export async function dueCallbacks(ctx: Ctx, before = new Date(), limit = 50) {
+  return getDb()
+    .select({
+      contactId: contacts.id,
+      phone: contacts.phone,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      companyName: companies.name,
+      city: companies.city,
+      score: contacts.score,
+      dueAt: contacts.nextCallbackAt,
+      lastCallOutcome: contacts.lastCallOutcome,
+    })
+    .from(contacts)
+    .leftJoin(companies, eq(companies.id, contacts.companyId))
+    .where(
+      and(
+        eq(contacts.organizationId, ctx.organizationId),
+        sql`${contacts.nextCallbackAt} is not null`,
+        sql`${contacts.nextCallbackAt} <= ${before}`,
+        eq(contacts.phoneInvalid, false),
+        sql`${contacts.status} <> 'DO_NOT_CONTACT'`,
+      ),
+    )
+    .orderBy(contacts.nextCallbackAt)
+    .limit(limit);
+}
+
+/**
  * Call metrics.
  *
  * `connectRateObservable` is false whenever any call in the window came from a

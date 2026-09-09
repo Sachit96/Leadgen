@@ -12,7 +12,13 @@ import {
 import { createHarness, type Harness } from '../helpers/harness';
 import { createSearchJob, getSearchJob, startSearchJob, searchProgress } from '@/lib/services/lead-search';
 import { listLeads, leadViewCounts, approveLeads, rejectLeads, getLeadDetail } from '@/lib/services/leads';
-import { createCallQueue, currentQueuePosition, loadCallCard, skipQueueItem } from '@/lib/services/call-queue';
+import {
+  createCallQueue,
+  currentQueuePosition,
+  listCallQueues,
+  loadCallCard,
+  skipQueueItem,
+} from '@/lib/services/call-queue';
 import { initiateCall, recordDisposition, callMetrics, listCallHistory } from '@/lib/services/calls';
 import { tick } from '@/lib/worker/tick';
 import { telUri } from '@/lib/providers/call';
@@ -441,8 +447,52 @@ describe('call queue and dispositions', () => {
     const queue = await createCallQueue(h.ctx, { name: 'Suppression', filters: {} });
     const items = await h.db.select().from(callQueueItems).where(eq(callQueueItems.queueId, queue.id));
     expect(items.map((i) => i.contactId)).not.toContain(target.contactId);
+    // The suppressed number is the ONLY one excluded. Without this the test
+    // would also pass on a queue that came back empty for an unrelated reason.
+    expect(items).toHaveLength(leads.rows.length - 1);
 
     await expect(initiateCall(h.ctx, { contactId: target.contactId })).rejects.toThrow(/do-not-contact/i);
+  });
+
+  /**
+   * Drizzle renders a column without its table qualifier when the outer query
+   * has no join, so `${callQueues.id}` inside a raw subquery over
+   * `call_queue_items` used to bind to that table's own id — a correlation that
+   * silently counted zero instead of failing. These assert the counts are real,
+   * because a wrong count here is invisible: the page just shows a plausible
+   * number.
+   */
+  it('counts what is left in a queue rather than always zero', async () => {
+    await seedCallableLeads(6);
+    const queue = await createCallQueue(h.ctx, { name: 'Counting', filters: {} });
+
+    const before = await listCallQueues(h.ctx);
+    const row = before.find((q) => q.queue.id === queue.id)!;
+    expect(row.queue.totalCount).toBe(6);
+    expect(row.remaining).toBe(6);
+
+    const position = (await currentQueuePosition(h.ctx, queue.id))!;
+    await recordDisposition(h.ctx, {
+      contactId: position.contactId,
+      outcome: 'NO_ANSWER',
+      queueItemId: position.itemId,
+    });
+    await skipQueueItem(h.ctx, (await currentQueuePosition(h.ctx, queue.id))!.itemId, 'Bad timing');
+
+    const after = await listCallQueues(h.ctx);
+    expect(after.find((q) => q.queue.id === queue.id)!.remaining).toBe(4);
+  });
+
+  it("counts a campaign's prospects rather than always zero", async () => {
+    const { enrollProspects, listCampaigns } = await import('@/lib/services/campaigns');
+    await seedCallableLeads(4);
+    const leads = await listLeads(h.ctx, { filters: { view: 'CALL_READY' } });
+
+    await enrollProspects(h.ctx, h.campaignId, leads.rows.map((r) => r.contactId));
+
+    const campaigns = await listCampaigns(h.ctx);
+    const campaign = campaigns.find((c) => c.campaign.id === h.campaignId)!;
+    expect(campaign.prospects).toBe(leads.rows.length);
   });
 });
 

@@ -1,4 +1,5 @@
 import { and, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { outer } from '@/lib/db/sql';
 import { getDb } from '@/lib/db';
 import {
   appointments,
@@ -223,45 +224,45 @@ export async function campaignPerformance(
       campaignName: campaigns.name,
       status: campaigns.status,
       prospects: sql<number>`(
-        select count(*)::int from ${campaignMemberships} cm where cm.campaign_id = ${campaigns.id}
+        select count(*)::int from ${campaignMemberships} cm where cm.campaign_id = ${outer(campaigns.id)}
       )`,
       sent: sql<number>`(
         select count(*)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.direction = 'OUTBOUND'
+        where m.campaign_id = ${outer(campaigns.id)} and m.direction = 'OUTBOUND'
           and m.status in ('SENT','DELIVERED')
           and m.created_at between ${range.from} and ${range.to}
       )`,
       delivered: sql<number>`(
         select count(*)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.status = 'DELIVERED'
+        where m.campaign_id = ${outer(campaigns.id)} and m.status = 'DELIVERED'
           and m.created_at between ${range.from} and ${range.to}
       )`,
       contacted: sql<number>`(
         select count(distinct m.contact_id)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.direction = 'OUTBOUND'
+        where m.campaign_id = ${outer(campaigns.id)} and m.direction = 'OUTBOUND'
           and m.created_at between ${range.from} and ${range.to}
       )`,
       replies: sql<number>`(
         select count(distinct m.contact_id)::int from ${messages} m
-        where m.campaign_id = ${campaigns.id} and m.direction = 'INBOUND'
+        where m.campaign_id = ${outer(campaigns.id)} and m.direction = 'INBOUND'
           and m.created_at between ${range.from} and ${range.to}
       )`,
       positiveReplies: sql<number>`(
         select count(*)::int from ${conversations} cv
-        where cv.campaign_id = ${campaigns.id} and cv.intent = 'positive'
+        where cv.campaign_id = ${outer(campaigns.id)} and cv.intent = 'positive'
       )`,
       appointments: sql<number>`(
         select count(*)::int from ${appointments} ap
-        where ap.campaign_id = ${campaigns.id}
+        where ap.campaign_id = ${outer(campaigns.id)}
           and ap.created_at between ${range.from} and ${range.to}
       )`,
       won: sql<number>`(
         select count(*)::int from ${pipelineDeals} pd
-        where pd.campaign_id = ${campaigns.id} and pd.stage = 'WON'
+        where pd.campaign_id = ${outer(campaigns.id)} and pd.stage = 'WON'
       )`,
       revenueCents: sql<number>`(
         select coalesce(sum(pd.value_cents), 0)::int from ${pipelineDeals} pd
-        where pd.campaign_id = ${campaigns.id} and pd.stage = 'WON'
+        where pd.campaign_id = ${outer(campaigns.id)} and pd.stage = 'WON'
       )`,
     })
     .from(campaigns)
@@ -324,38 +325,38 @@ export async function variantPerformance(ctx: Ctx, campaignId?: string): Promise
       stepId: campaignVariants.stepId,
       campaignName: campaigns.name,
       messages: sql<number>`(
-        select count(*)::int from ${messages} m where m.variant_id = ${campaignVariants.id}
+        select count(*)::int from ${messages} m where m.variant_id = ${outer(campaignVariants.id)}
       )`,
       replies: sql<number>`(
         select count(distinct inb.contact_id)::int
         from ${messages} inb
         where inb.direction = 'INBOUND'
           and inb.contact_id in (
-            select m.contact_id from ${messages} m where m.variant_id = ${campaignVariants.id}
+            select m.contact_id from ${messages} m where m.variant_id = ${outer(campaignVariants.id)}
           )
       )`,
       positiveReplies: sql<number>`(
         select count(*)::int from ${conversations} cv
         where cv.intent = 'positive' and cv.contact_id in (
-          select m.contact_id from ${messages} m where m.variant_id = ${campaignVariants.id}
+          select m.contact_id from ${messages} m where m.variant_id = ${outer(campaignVariants.id)}
         )
       )`,
       qualified: sql<number>`(
         select count(*)::int from ${conversations} cv
         where cv.state in ('QUALIFICATION','VALUE','APPOINTMENT','BOOKED')
           and cv.contact_id in (
-            select m.contact_id from ${messages} m where m.variant_id = ${campaignVariants.id}
+            select m.contact_id from ${messages} m where m.variant_id = ${outer(campaignVariants.id)}
           )
       )`,
       appointments: sql<number>`(
         select count(*)::int from ${appointments} ap
         where ap.contact_id in (
-          select m.contact_id from ${messages} m where m.variant_id = ${campaignVariants.id}
+          select m.contact_id from ${messages} m where m.variant_id = ${outer(campaignVariants.id)}
         )
       )`,
       revenueCents: sql<number>`(
         select coalesce(sum(pd.value_cents), 0)::int from ${pipelineDeals} pd
-        where pd.stage = 'WON' and pd.variant_id = ${campaignVariants.id}
+        where pd.stage = 'WON' and pd.variant_id = ${outer(campaignVariants.id)}
       )`,
     })
     .from(campaignVariants)
