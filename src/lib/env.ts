@@ -11,6 +11,10 @@ import { z } from 'zod';
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
+  /**
+   * A Postgres connection string, or `pglite://<path>` to use the embedded
+   * engine (no server to install — see docs/DEPLOYMENT.md).
+   */
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
 

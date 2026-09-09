@@ -2,24 +2,25 @@
   "name": "on-radar",
   "version": "1.0.0",
   "private": true,
-  "description": "On Radar — AI-powered outbound sales operating system",
+  "description": "On Radar \u2014 AI-powered outbound sales operating system",
   "engines": {
     "node": ">=20.9.0"
   },
   "scripts": {
+    "setup": "tsx scripts/setup.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker": "tsx scripts/worker.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify": "npm run typecheck && npm run lint && npm run test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "db:reset": "tsx scripts/reset.ts",
-    "worker": "tsx scripts/worker.ts",
-    "verify": "npm run typecheck && npm run lint && npm run test"
+    "db:reset": "tsx scripts/reset.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.11",
+    "@eslint/js": "^9.39.5",
     "@tailwindcss/postcss": "^4.1.14",
     "@types/node": "^22.18.6",
     "@types/pg": "^8.15.5",
@@ -42,7 +44,7 @@
     "eslint": "^9.36.0",
     "eslint-config-next": "^15.5.4",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "playwright": "^1.63.0",
+    "globals": "^17.12.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.20.6",

@@ -4,17 +4,17 @@
  */
 import 'dotenv/config';
 import { sql } from 'drizzle-orm';
-import { getDb, getPool } from '../src/lib/db';
+import { getPool, initDb, isEmbedded } from '../src/lib/db';
 import { organizations } from '../src/lib/db/schema';
 import { seedDemoData } from '../src/lib/seed/demo';
 
 async function main() {
-  const db = getDb();
+  const db = await initDb();
 
   const existing = await db.select({ count: sql<number>`count(*)::int` }).from(organizations);
   if ((existing[0]?.count ?? 0) > 0 && !process.argv.includes('--force')) {
     console.log('Database already contains an organization. Re-run with --force to seed another.');
-    await getPool().end();
+    await close();
     return;
   }
 
@@ -32,7 +32,12 @@ async function main() {
   console.log(`  Prospects    ${result.prospects}`);
   console.log('');
 
-  await getPool().end();
+  await close();
+}
+
+/** The embedded engine has no pool to drain; the process just exits. */
+async function close(): Promise<void> {
+  if (!isEmbedded()) await getPool().end();
 }
 
 main().catch(async (error) => {

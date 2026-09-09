@@ -9,5 +9,5 @@ dist
 .DS_Store
 coverage
 .vercel
-/data/*.db
+/data
 /.pglite

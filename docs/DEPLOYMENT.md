@@ -9,6 +9,20 @@ messages queue and nothing sends.
 
 ---
 
+## 0. Local, with nothing installed
+
+For a local demo, skip this whole page:
+
+```bash
+npm install && npm run setup && npm run dev
+```
+
+`setup` points `DATABASE_URL` at `pglite://./data/onradar`, an embedded Postgres
+engine that needs no server, and turns on `DEMO_MODE` so the worker runs inside
+the app. That mode is **not** for production: the embedded engine is
+single-process, so it cannot be shared with a separate worker or a second app
+instance. Everything below is the real deployment.
+
 ## 1. Database
 
 Any Postgres 14+. Supabase, Neon, RDS, or self-hosted.

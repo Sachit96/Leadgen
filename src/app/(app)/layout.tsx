@@ -3,12 +3,16 @@ import { getSessionUser } from '@/lib/auth/context';
 import { countNeedingHuman } from '@/lib/services/conversations';
 import { countUnread } from '@/lib/services/notifications';
 import { countOpenTasks } from '@/lib/services/tasks';
+import { startDemoWorker } from '@/lib/worker/demo-loop';
 import { Nav } from '@/components/nav';
 import { ToastProvider } from '@/components/ui/toast';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  // No-op unless DEMO_MODE is on; idempotent across renders.
+  startDemoWorker();
+
   const user = await getSessionUser();
   if (!user) redirect('/login');
 

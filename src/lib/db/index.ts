@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import * as schema from './schema';
 import { env } from '@/lib/env';
 
+
 /**
  * The single database handle type used everywhere in the app.
  *
@@ -40,9 +41,24 @@ export function getPool(): Pool {
 /** Lazily creates (and caches) the process-wide Drizzle handle. */
 export function getDb(): Db {
   if (globalThis.__onRadarDb) return globalThis.__onRadarDb;
+  if (env().DATABASE_URL.startsWith('pglite://')) {
+    throw new Error(
+      'The embedded database must be opened before use. Call initDb() first.',
+    );
+  }
   const db = drizzle(getPool(), { schema });
   globalThis.__onRadarDb = db;
   return db;
 }
+
+
+/** Opens whichever database DATABASE_URL points at. */
+export async function initDb(): Promise<Db> {
+  const { isEmbedded, initEmbeddedDb } = await import('./embedded');
+  if (isEmbedded(env().DATABASE_URL)) return initEmbeddedDb();
+  return getDb();
+}
+
+export { createEmbeddedClient, embeddedPath, isEmbedded } from './embedded';
 
 export { schema };

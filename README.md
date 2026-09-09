@@ -26,23 +26,41 @@ UI. Nothing on any screen is a mockup.
 
 ## Quick start
 
+Requires **Node 20 or newer**. Nothing else — no Postgres, no Docker, no
+credentials.
+
 ```bash
-git clone <this repo> && cd on-radar
+git clone https://github.com/Sachit96/Leadgen.git on-radar
+cd on-radar
+git checkout claude/on-radar-ai-sms-sales-up2jof
+
 npm install
-
-cp .env.example .env
-# Set DATABASE_URL and SESSION_SECRET. Everything else can stay as-is.
-# openssl rand -base64 48   # for SESSION_SECRET
-
-npm run db:migrate        # apply the schema
-npm run db:seed           # realistic demo data — see below
-
-npm run dev               # http://localhost:3000
-npm run worker            # in a second terminal: sends messages, runs the AI
+npm run setup      # writes .env, creates the database, loads demo data
+npm run dev        # http://localhost:3000
 ```
 
-`db:seed` prints the sign-in credentials it created (default
+`npm run setup` prints the sign-in credentials it created (by default
 `owner@onradar.local` / `onradar-demo-2026`).
+
+> If you already have a folder called `Leadgen`, clone into a different name as
+> above — `git clone` refuses to write into a non-empty directory, and because
+> the commands are chained, nothing after it would run.
+
+**Why there is no database to install.** `setup` points `DATABASE_URL` at
+`pglite://./data/onradar` — an embedded Postgres engine that writes to a local
+directory. It is the same engine the test suite runs the real migrations
+against, so the SQL, constraints and indexes are identical to a served Postgres.
+It is single-process, so demo mode runs the worker inside the app rather than as
+a separate `npm run worker`; `npm run dev` on its own is a complete system.
+
+For anything beyond a local demo, point `DATABASE_URL` at a real Postgres
+(Supabase, Neon, RDS) and run the worker as its own process:
+
+```bash
+DATABASE_URL='postgres://…' npm run db:migrate
+npm run start      # the app
+npm run worker     # the worker, in a second terminal
+```
 
 With no third-party credentials the app runs fully on mocks: the SMS provider,
 the AI provider and the calendar all have real in-process implementations of the
@@ -174,7 +192,8 @@ reply rate from five messages is how a good angle gets killed.
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Development server |
+| `npm run setup` | Writes .env, creates the database, loads demo data |
+| `npm run dev` | Development server (also runs the worker, in demo mode) |
 | `npm run worker` | Background worker: sequences, AI turns, sending, reminders |
 | `npm run build` / `npm start` | Production build and serve |
 | `npm run db:migrate` | Apply migrations |
