@@ -79,6 +79,43 @@ function defaultResponse(request: CompletionRequest): string {
     });
   }
 
+  if (system.includes('AGENT: business_research')) {
+    // Answers from the structured part of the prompt only. The fenced website
+    // block is deliberately ignored, exactly as the real agent is told to treat
+    // it — so an injection test that plants instructions in a page cannot pass
+    // by accident here either.
+    const name = firstMatch(input, /^Business name:\s*(.+)$/im) ?? 'This business';
+    return JSON.stringify({
+      business_summary: `${name} is a local service business listed in the search area.`,
+      services: ['roof replacement', 'roof repair'],
+      service_area: firstMatch(input, /^City:\s*(.+)$/im),
+      likely_company_size: null,
+      likely_customer_type: 'residential',
+      growth_signals: [],
+      lead_generation_signals: [],
+      follow_up_risk_signals: ['No online booking found on the site'],
+      personalization_hooks: ['Long-standing local presence'],
+      owner_name: null,
+      owner_confidence: 0,
+      research_confidence: 0.4,
+      unknowns: ['owner name', 'advertising spend', 'CRM in use'],
+      inferred_claims: ['Residential focus inferred from listed services'],
+    });
+  }
+
+  if (system.includes('AGENT: lead_personalization')) {
+    const name = firstMatch(input, /The business is called (.+?)\.$/im) ?? 'your team';
+    return JSON.stringify({
+      hook: `${name} has a steady local presence`,
+      recommended_angle: 'old_estimates',
+      opening_message:
+        'Quick question about the estimates that never closed - are you still following up on those by hand?',
+      call_opener: `Hi, this is Sam calling for ${name}. Quick one - how do you follow up on estimates that go quiet?`,
+      rationale: 'Leads with a concrete, low-friction question about a known gap.',
+      confidence: 0.6,
+    });
+  }
+
   if (system.includes('AGENT: summary')) {
     return JSON.stringify({
       summary: 'Prospect engaged and described a manual follow-up process.',
@@ -121,4 +158,9 @@ function defaultResponse(request: CompletionRequest): string {
     requires_human: false,
     handoff_reason: null,
   });
+}
+
+function firstMatch(text: string, pattern: RegExp): string | null {
+  const match = pattern.exec(text);
+  return match?.[1]?.trim() ?? null;
 }

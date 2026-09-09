@@ -3,6 +3,8 @@ import { createTestDb } from './db';
 import { MockSmsProvider, setSmsProvider } from '@/lib/providers/sms';
 import { MockAiProvider, setAiProvider } from '@/lib/providers/ai';
 import { InternalCalendarProvider, setCalendarProvider } from '@/lib/providers/calendar';
+import { MockDiscoveryProvider, setDiscoveryProvider } from '@/lib/lead-generation/providers';
+import { DeviceCallProvider, setCallProvider } from '@/lib/providers/call';
 import { seedMinimalOrg } from '@/lib/seed/demo';
 import { updateOrgConfig } from '@/lib/services/settings';
 import { setCampaignStatus, updateCampaign } from '@/lib/services/campaigns';
@@ -15,6 +17,7 @@ export type Harness = {
   campaignId: string;
   sms: MockSmsProvider;
   ai: MockAiProvider;
+  discovery: MockDiscoveryProvider;
   close: () => Promise<void>;
 };
 
@@ -31,8 +34,11 @@ export async function createHarness(): Promise<Harness> {
 
   const sms = new MockSmsProvider();
   const ai = new MockAiProvider();
+  const discovery = new MockDiscoveryProvider();
   setSmsProvider(sms);
   setAiProvider(ai);
+  setDiscoveryProvider(discovery);
+  setCallProvider(new DeviceCallProvider());
   setCalendarProvider(new InternalCalendarProvider());
 
   const { ctx, campaignId } = await seedMinimalOrg();
@@ -62,9 +68,12 @@ export async function createHarness(): Promise<Harness> {
     campaignId,
     sms,
     ai,
+    discovery,
     close: async () => {
       setSmsProvider(undefined);
       setAiProvider(undefined);
+      setDiscoveryProvider(undefined);
+      setCallProvider(undefined);
       setCalendarProvider(undefined);
       await close();
     },

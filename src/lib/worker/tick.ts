@@ -11,6 +11,7 @@ import { claimJobs } from '@/lib/services/queue';
 import { processOutboundJob } from '@/lib/services/sender';
 import { dueMemberships, processMembership } from '@/lib/services/sequences';
 import { sendDueAppointmentReminders } from '@/lib/services/appointments';
+import { runLeadJobs, type LeadWorkerResult } from './lead-worker';
 import { purgeExpiredSessions } from '@/lib/auth/session';
 
 export type TickResult = {
@@ -18,6 +19,7 @@ export type TickResult = {
   sends: { claimed: number; sent: number; deferred: number; failed: number; cancelled: number };
   sequences: { due: number; queued: number; completed: number; paused: number; deferred: number };
   ai: { due: number; replied: number; handoff: number; failed: number; skipped: number };
+  leads: LeadWorkerResult;
   reminders: number;
   durationMs: number;
 };
@@ -26,6 +28,7 @@ export type TickOptions = {
   sendBatch?: number;
   sequenceBatch?: number;
   aiBatch?: number;
+  leadBatch?: number;
   /** Skip housekeeping when ticking frequently. */
   skipMaintenance?: boolean;
 };
@@ -48,6 +51,7 @@ export async function tick(options: TickOptions = {}): Promise<TickResult> {
     sends: { claimed: 0, sent: 0, deferred: 0, failed: 0, cancelled: 0 },
     sequences: { due: 0, queued: 0, completed: 0, paused: 0, deferred: 0 },
     ai: { due: 0, replied: 0, handoff: 0, failed: 0, skipped: 0 },
+    leads: { claimed: 0, succeeded: 0, skipped: 0, retrying: 0, dead: 0 },
     reminders: 0,
     durationMs: 0,
   };
@@ -119,7 +123,14 @@ export async function tick(options: TickOptions = {}): Promise<TickResult> {
     log.error('send pass failed', { errorCode: errorMessage(error).slice(0, 120) });
   }
 
-  // 4. Appointment reminders.
+  // 4. The lead pipeline: discovery, enrichment, research, scoring.
+  try {
+    result.leads = await runLeadJobs(options.leadBatch ?? 10, workerId);
+  } catch (error) {
+    log.error('lead pass failed', { errorCode: errorMessage(error).slice(0, 120) });
+  }
+
+  // 5. Appointment reminders.
   try {
     result.reminders = await sendDueAppointmentReminders();
   } catch (error) {
@@ -153,6 +164,7 @@ function hasWork(result: TickResult): boolean {
     result.sends.claimed > 0 ||
     result.sequences.due > 0 ||
     result.ai.due > 0 ||
+    result.leads.claimed > 0 ||
     result.reminders > 0
   );
 }
@@ -165,6 +177,8 @@ function flatten(result: TickResult): Record<string, unknown> {
     sequencesQueued: result.sequences.queued,
     aiReplied: result.ai.replied,
     aiHandoff: result.ai.handoff,
+    leadsProcessed: result.leads.succeeded,
+    leadsDead: result.leads.dead,
     reminders: result.reminders,
     latencyMs: result.durationMs,
   };
