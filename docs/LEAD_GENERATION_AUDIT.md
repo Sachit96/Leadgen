@@ -133,3 +133,87 @@ Phase 1 schema → 2 search jobs → 3 discovery adapter → 4 normalize/dedupe 
 9 personalization → 10 review UI → 11 call queue → 12 call view → 13 dispositions
 → 14 analytics → 15 campaign integration → 16 AI integration → 17 tests →
 18 hardening. Typecheck, lint, tests and build after each.
+
+---
+
+## 7. What the build actually found
+
+The plan above survived contact with the code, with four exceptions worth
+recording — each was a bug the audit did not predict, and three of them were
+invisible to the test suite that existed at the time.
+
+### 7.1 Correlated subqueries that silently counted zero
+
+Drizzle renders a column in the **SELECT-field** position without its table
+qualifier when the outer query has no join. So this:
+
+```ts
+remaining: sql<number>`(
+  select count(*)::int from ${callQueueItems} i
+  where i.queue_id = ${callQueues.id} and i.status in ('PENDING','CURRENT')
+)`
+```
+
+emits `where i.queue_id = "id"`, and `"id"` resolves against
+`call_queue_items` — the subquery correlated a table with itself. It returned
+zero instead of raising. The same shape was wrong in `listCampaigns` and
+`campaignPerformance`, so **every prospect, sent and reply count on the
+campaigns and analytics pages had been zero**, on screens that looked fine.
+
+In a WHERE clause, and in any query that has a join, drizzle *does* qualify —
+which is why this was inconsistent and easy to miss.
+
+Fix: `outer()` in `src/lib/db/sql.ts` always emits `"table"."column"`, and it
+is applied to every correlated subquery, including the ones that are correct
+today only because their query happens to have a join. Two regression tests
+cover the class; both fail without the fix.
+
+**Found by loading the page in a browser**, not by any test, typecheck, lint or
+build — the same way the `buttonClass` bug was found in the previous build.
+
+### 7.2 The research agent was reading almost nothing
+
+The crawler produced readable page text and discarded it: only the title, meta
+description and services were stored in `lead_enrichment.output`. The research
+prompt's untrusted-content fence was guarding a nearly empty block.
+
+Found while writing the prompt-injection test — the hostile page's content
+never appeared in the prompt, because no page text ever did. A capped excerpt
+is now stored and passed through.
+
+### 7.3 A disposition that dropped the thing it was recording
+
+`recordDisposition` skipped the contact update entirely for `WRONG_NUMBER` and
+`BAD_NUMBER`, on the theory that suppression had already written the row.
+Suppression only sets `status`, so `phoneInvalid`, `phoneValidated` and
+`phoneConfidence` were computed and thrown away — and the number stayed
+dialable. The patch never touches `status`, so it is safe to always apply.
+
+### 7.4 A test that passed for the wrong reason
+
+"Excludes suppressed numbers from queues" asserted only that the suppressed
+contact was absent. An empty queue satisfies that. It now also asserts the
+queue contains every *other* lead, so a queue that comes back empty for an
+unrelated reason fails instead of passing.
+
+---
+
+## 8. What was built, against the plan
+
+Every phase landed. Notes where reality differed:
+
+- **Discovery provider**: `GooglePlacesProvider` is the default adapter, as the
+  audit concluded (§2). The reference repo has no LICENSE file, so it was read
+  and not copied.
+- **`contacts` is the prospect table.** No parallel prospect store was created.
+  A lead is a `contacts` row; the lead inbox is a view over the CRM; approving
+  a lead does not move it anywhere.
+- **Calling honours §107 throughout.** `INITIATED` is the only outcome the
+  system writes on its own. `call_attempts.connection_reported` is false unless
+  a provider says otherwise, and it is false for every call today. The call
+  screen, the calls page, the analytics panel and Settings → Integrations all
+  say so in words rather than implying a connect rate.
+- **Demo data runs the real pipeline.** `npm run db:seed` drives discovery,
+  enrichment, research, scoring and personalization against the synthetic
+  provider rather than inserting rows that mimic their output — data that
+  skipped the pipeline would hide exactly the bugs a demo should surface.

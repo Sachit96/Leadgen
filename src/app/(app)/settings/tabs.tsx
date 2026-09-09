@@ -285,6 +285,23 @@ export function SettingsTabs({
             note="Without a key the agent returns deterministic mock replies so the conversation engine stays exercisable."
           />
           <IntegrationCard
+            title="Lead discovery"
+            configured={integrations.discovery.effective !== 'mock'}
+            effective={integrations.discovery.effective}
+            selected={integrations.discovery.selected}
+            envKeys={['GOOGLE_PLACES_API_KEY', 'LEAD_DISCOVERY_MAX_REQUESTS']}
+            note="Without a key, searches return synthetic businesses with numbers in the 555-01xx range reserved for fiction and .example domains — nothing real is contacted. With a live key every search calls the provider's API and costs money, which is what LEAD_DISCOVERY_MAX_REQUESTS caps."
+          />
+          <IntegrationCard
+            title="Calling"
+            configured={integrations.calling.reportsConnection}
+            effective={integrations.calling.effective}
+            selected={integrations.calling.selected}
+            envKeys={['CALL_PROVIDER']}
+            status={{ label: 'live · device · no call progress', tone: 'neutral' }}
+            note="Calls are handed to your phone with a tel: link. The app records that a call was started and whatever outcome you mark — it cannot observe ringing, answering or duration, so there is no measured connect rate anywhere in the product. Adding a voice provider is what would change that."
+          />
+          <IntegrationCard
             title="Calendar"
             configured={integrations.calendar.effective === 'google'}
             effective={integrations.calendar.effective}
@@ -459,6 +476,7 @@ function IntegrationCard({
   selected,
   envKeys,
   note,
+  status,
 }: {
   title: string;
   configured: boolean;
@@ -466,13 +484,15 @@ function IntegrationCard({
   selected: string;
   envKeys: string[];
   note: string;
+  /** Overrides the badge where "mock vs live" is not the real distinction. */
+  status?: { label: string; tone: 'positive' | 'warning' | 'neutral' };
 }) {
   return (
     <Card>
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-sm font-medium text-ink-100">{title}</h3>
-        <Badge tone={configured ? 'positive' : 'warning'}>
-          {configured ? `live · ${effective}` : `mock (selected: ${selected})`}
+        <Badge tone={status?.tone ?? (configured ? 'positive' : 'warning')}>
+          {status?.label ?? (configured ? `live · ${effective}` : `mock (selected: ${selected})`)}
         </Badge>
       </div>
       <p className="text-sm text-ink-400">{note}</p>

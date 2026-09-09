@@ -129,6 +129,16 @@ export function integrationStatus(e: Env = env()) {
       effective: e.LEAD_DISCOVERY_PROVIDER === 'google_places' && placesReady ? 'google_places' : 'mock',
       placesReady,
     },
+    /**
+     * Calling. `configured` is true because device telephony needs no
+     * credentials — but `reportsConnection` is what actually matters, and it is
+     * false, which is why nothing in the app publishes a connect rate.
+     */
+    calling: {
+      selected: e.CALL_PROVIDER,
+      effective: e.CALL_PROVIDER,
+      reportsConnection: false,
+    },
     calendar: {
       selected: e.CALENDAR_PROVIDER,
       effective: e.CALENDAR_PROVIDER === 'google' && googleReady ? 'google' : 'internal',
