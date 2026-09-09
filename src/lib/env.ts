@@ -50,6 +50,16 @@ const schema = z.object({
   CRAWL_MAX_PAGES: z.string().default('6'),
   CRAWL_USER_AGENT: z.string().default('OnRadarBot/1.0 (+https://onradar.example/bot)'),
 
+  /**
+   * Calling.
+   *
+   * Only device telephony ships. The variable exists so adding a voice provider
+   * is a configuration change rather than a code change — and so the one thing
+   * that follows from `device` (the app cannot observe a connection) is stated
+   * where someone configuring the app will read it.
+   */
+  CALL_PROVIDER: z.enum(['device']).default('device'),
+
   // --- Calendar ------------------------------------------------------------
   CALENDAR_PROVIDER: z.enum(['google', 'internal']).default('internal'),
   GOOGLE_CLIENT_ID: z.string().optional(),

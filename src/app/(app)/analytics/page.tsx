@@ -1,13 +1,18 @@
 import Link from 'next/link';
 import { requireCtx } from '@/lib/auth/context';
 import {
+  callOutcomeBreakdown,
+  callsDailySeries,
   campaignPerformance,
   dailySeries,
   funnelMetrics,
+  leadFunnel,
   resolveRange,
   revenueBySource,
   variantPerformance,
 } from '@/lib/services/analytics';
+import { callMetrics } from '@/lib/services/calls';
+import { getCallProvider } from '@/lib/providers/call';
 import { formatMoney, getOrgConfig } from '@/lib/services/settings';
 import {
   Badge,
@@ -39,16 +44,22 @@ export default async function AnalyticsPage({
     to: typeof params.to === 'string' ? params.to : undefined,
   });
 
-  const [metrics, series, campaigns, variants, sources, config] = await Promise.all([
-    funnelMetrics(ctx, range),
-    dailySeries(ctx, range),
-    campaignPerformance(ctx, range),
-    variantPerformance(ctx),
-    revenueBySource(ctx),
-    getOrgConfig(ctx),
-  ]);
+  const [metrics, series, campaigns, variants, sources, config, leads, calls, callSeries, outcomes] =
+    await Promise.all([
+      funnelMetrics(ctx, range),
+      dailySeries(ctx, range),
+      campaignPerformance(ctx, range),
+      variantPerformance(ctx),
+      revenueBySource(ctx),
+      getOrgConfig(ctx),
+      leadFunnel(ctx, range),
+      callMetrics(ctx, range.from),
+      callsDailySeries(ctx, range),
+      callOutcomeBreakdown(ctx, range),
+    ]);
 
   const currency = config.offer.currency;
+  const callProvider = getCallProvider();
 
   return (
     <div className="p-6">
@@ -128,6 +139,95 @@ export default async function AnalyticsPage({
           </Card>
         </div>
       </div>
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-3">
+        <div>
+          <SectionTitle>Lead generation</SectionTitle>
+          <Card>
+            <FunnelChart
+              stages={[
+                { label: 'Discovered', value: leads.discovered },
+                { label: 'Promoted to CRM', value: leads.promoted, rateLabel: 'of discovered' },
+                { label: 'Site crawled', value: leads.crawled, rateLabel: 'of promoted' },
+                { label: 'Researched', value: leads.researched, rateLabel: 'of crawled' },
+                { label: 'Scored', value: leads.scored, rateLabel: 'of researched' },
+                { label: 'Opening line written', value: leads.personalized, rateLabel: 'of scored' },
+                { label: 'Call ready', value: leads.callReady, rateLabel: 'of scored' },
+                { label: 'Called', value: leads.called, rateLabel: 'of call ready' },
+              ]}
+            />
+            <p className="mt-3 text-xs text-ink-500">
+              {leads.searches} search{leads.searches === 1 ? '' : 'es'} · {leads.duplicates} duplicates
+              skipped · {leads.failed} records failed enrichment.
+            </p>
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle>Calling</SectionTitle>
+          <Card>
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="Calls started" value={calls.attempted} />
+              <Stat label="Outcomes marked" value={calls.dispositioned} />
+              <Stat label="Booked" value={calls.booked} tone="positive" />
+              <Stat label="Bookings per 100" value={calls.bookingsPer100Calls} tone="hot" />
+            </div>
+            <div className="mt-3">
+              <BarChart
+                bars={outcomes.map((o) => ({
+                  label: o.outcome.replace(/_/g, ' ').toLowerCase(),
+                  value: o.count,
+                }))}
+              />
+            </div>
+          </Card>
+        </div>
+
+        <div>
+          <SectionTitle>What the call data is</SectionTitle>
+          <Card className="space-y-3">
+            <Stat
+              label={calls.connectRateObservable ? 'Connect rate' : 'Operator-reported contact rate'}
+              value={`${calls.operatorReportedContactRate}%`}
+              sublabel={`${calls.dispositioned} outcomes marked`}
+            />
+            <p className="text-xs leading-relaxed text-ink-500">
+              {callProvider.reportsConnection
+                ? 'Your call provider reports call progress, so connect data here is measured telemetry.'
+                : 'Calls are placed by the operator\u2019s phone through a tel: link. The app records that a call was started and whatever outcome the operator marked \u2014 it never observes whether a call connected, so there is no measured connect rate to publish.'}
+            </p>
+            <p className="text-xs leading-relaxed text-ink-500">
+              {calls.reportedConnected > 0
+                ? `${calls.reportedConnected} calls were reported connected by a provider.`
+                : 'No call in this range was reported connected by a provider.'}
+            </p>
+          </Card>
+        </div>
+      </div>
+
+      {callSeries.length > 0 ? (
+        <div className="mt-6">
+          <SectionTitle>Calls over time</SectionTitle>
+          <Card>
+            <LineChart
+              title="Calls started, outcomes marked and bookings per day"
+              points={callSeries.map((point) => ({
+                label: point.day,
+                values: {
+                  started: point.started,
+                  dispositioned: point.dispositioned,
+                  booked: point.booked,
+                },
+              }))}
+              series={[
+                { key: 'started', label: 'Started' },
+                { key: 'dispositioned', label: 'Marked' },
+                { key: 'booked', label: 'Booked' },
+              ]}
+            />
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div>

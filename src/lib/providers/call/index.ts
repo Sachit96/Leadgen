@@ -19,8 +19,13 @@ declare global {
  */
 export function getCallProvider(): CallProvider {
   if (globalThis.__onRadarCallProvider) return globalThis.__onRadarCallProvider;
-  void env();
+
+  // Reading the variable validates it and keeps the selection in one place;
+  // `device` is the only value the enum accepts, so there is nothing to branch
+  // on yet. A voice provider adds a case here and nothing else.
+  void env().CALL_PROVIDER;
   const provider: CallProvider = new DeviceCallProvider();
+
   globalThis.__onRadarCallProvider = provider;
   return provider;
 }

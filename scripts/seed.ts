@@ -7,6 +7,8 @@ import { sql } from 'drizzle-orm';
 import { getPool, initDb, isEmbedded } from '../src/lib/db';
 import { organizations } from '../src/lib/db/schema';
 import { seedDemoData } from '../src/lib/seed/demo';
+import { seedCallDemo } from '../src/lib/seed/calls';
+import { systemCtx } from '../src/lib/auth/context';
 
 async function main() {
   const db = await initDb();
@@ -23,6 +25,11 @@ async function main() {
     password: process.env.SEED_PASSWORD ?? 'onradar-demo-2026',
   });
 
+  // The calling demo runs the real lead pipeline, which takes a moment.
+  const calls = process.argv.includes('--no-calls')
+    ? null
+    : await seedCallDemo(systemCtx(result.organizationId));
+
   console.log('');
   console.log('  On Radar demo data seeded.');
   console.log('  ------------------------------------------');
@@ -30,6 +37,11 @@ async function main() {
   console.log(`  Email        ${result.email}`);
   console.log(`  Password     ${result.password}`);
   console.log(`  Prospects    ${result.prospects}`);
+  if (calls) {
+    console.log(`  Leads        ${calls.leads} from ${calls.searches} searches`);
+    console.log(`  Call ready   ${calls.callReady}`);
+    console.log(`  Call queue   ${calls.queueSize} in "Today's calls"`);
+  }
   console.log('');
 
   await close();

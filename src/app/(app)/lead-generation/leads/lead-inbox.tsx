@@ -22,6 +22,7 @@ import { ScoreBadge } from '@/components/ui/status';
 import { buttonClass } from '@/components/ui/button-styles';
 import { approveLeadsAction, rejectLeadsAction } from '@/app/actions/lead-generation';
 import { addToCallQueueAction } from '@/app/actions/calls';
+import { bulkAssignCampaign } from '@/app/actions/prospects';
 
 const READINESS_TONE: Record<string, Tone> = {
   READY: 'positive',
@@ -42,6 +43,7 @@ export function LeadInbox({
   industries,
   cities,
   queues,
+  campaigns,
   canWrite,
 }: {
   views: Array<{ key: LeadView; label: string; count: number }>;
@@ -53,6 +55,7 @@ export function LeadInbox({
   industries: string[];
   cities: string[];
   queues: Array<{ id: string; name: string }>;
+  campaigns: Array<{ id: string; name: string }>;
   canWrite: boolean;
 }) {
   const router = useRouter();
@@ -218,6 +221,27 @@ export function LeadInbox({
               </select>
               <Button type="submit" variant="secondary" size="sm">
                 Add to call queue
+              </Button>
+            </ActionForm>
+          ) : null}
+
+          {campaigns.length > 0 ? (
+            <ActionForm
+              action={bulkAssignCampaign}
+              successMessage="Enrolled — suppressed and already-enrolled prospects were skipped"
+              onSuccess={() => setSelected(new Set())}
+              className="flex items-center gap-2"
+            >
+              {selectedIds.map((id) => (
+                <input key={id} type="hidden" name="ids" value={id} />
+              ))}
+              <select name="campaignId" className={`${selectClass} h-7 py-0 text-xs`}>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <Button type="submit" variant="secondary" size="sm">
+                Add to campaign
               </Button>
             </ActionForm>
           ) : null}

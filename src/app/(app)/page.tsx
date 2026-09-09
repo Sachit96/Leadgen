@@ -8,6 +8,9 @@ import { listAppointments } from '@/lib/services/appointments';
 import { listOpenTasks } from '@/lib/services/tasks';
 import { formatMoney, getOrgConfig } from '@/lib/services/settings';
 import { queueStats } from '@/lib/services/queue';
+import { callMetrics, dueCallbacks } from '@/lib/services/calls';
+import { listCallQueues } from '@/lib/services/call-queue';
+import { leadViewCounts } from '@/lib/services/leads';
 import {
   Badge,
   Card,
@@ -38,20 +41,40 @@ export default async function TodayPage() {
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [today, month, needsHuman, hot, appointments, tasks, campaigns, queue, config] =
-    await Promise.all([
-      funnelMetrics(ctx, range),
-      funnelMetrics(ctx, thirty),
-      listInbox(ctx, { filter: 'needs_human', limit: 6 }),
-      listInbox(ctx, { filter: 'hot', limit: 6 }),
-      listAppointments(ctx, { from: new Date(), to: endOfDay, limit: 10 }),
-      listOpenTasks(ctx, { dueBefore: endOfDay, limit: 8 }),
-      campaignPerformance(ctx, thirty),
-      queueStats(ctx),
-      getOrgConfig(ctx),
-    ]);
+  const [
+    today,
+    month,
+    needsHuman,
+    hot,
+    appointments,
+    tasks,
+    campaigns,
+    queue,
+    config,
+    callsToday,
+    callbacks,
+    callQueues,
+    leadCounts,
+  ] = await Promise.all([
+    funnelMetrics(ctx, range),
+    funnelMetrics(ctx, thirty),
+    listInbox(ctx, { filter: 'needs_human', limit: 6 }),
+    listInbox(ctx, { filter: 'hot', limit: 6 }),
+    listAppointments(ctx, { from: new Date(), to: endOfDay, limit: 10 }),
+    listOpenTasks(ctx, { dueBefore: endOfDay, limit: 8 }),
+    campaignPerformance(ctx, thirty),
+    queueStats(ctx),
+    getOrgConfig(ctx),
+    callMetrics(ctx, range.from),
+    dueCallbacks(ctx),
+    listCallQueues(ctx),
+    leadViewCounts(ctx),
+  ]);
 
   const activeCampaigns = campaigns.filter((c) => c.status === 'ACTIVE');
+  const leftToCall = callQueues
+    .filter((q) => q.queue.status === 'ACTIVE')
+    .reduce((total, q) => total + q.remaining, 0);
 
   return (
     <div className="p-6">
@@ -100,6 +123,40 @@ export default async function TodayPage() {
           value={formatMoney(month.revenueCents, config.offer.currency)}
           tone={month.revenueCents > 0 ? 'positive' : 'neutral'}
           href="/analytics"
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <Stat
+          label="Left to call"
+          value={leftToCall}
+          tone={leftToCall > 0 ? 'hot' : 'neutral'}
+          sublabel="across active queues"
+          href="/calls/today"
+        />
+        <Stat
+          label="Callbacks due"
+          value={callbacks.length}
+          tone={callbacks.length > 0 ? 'warning' : 'neutral'}
+          href="/calls/today"
+        />
+        <Stat
+          label="Calls started today"
+          value={callsToday.attempted}
+          sublabel={`${callsToday.dispositioned} marked`}
+          href="/calls"
+        />
+        <Stat
+          label="Booked on calls today"
+          value={callsToday.booked}
+          tone={callsToday.booked > 0 ? 'positive' : 'neutral'}
+          href="/calls"
+        />
+        <Stat
+          label="Call-ready leads"
+          value={leadCounts.CALL_READY ?? 0}
+          sublabel={`${leadCounts.REVIEW ?? 0} awaiting review`}
+          href="/lead-generation/leads?view=CALL_READY"
         />
       </div>
 

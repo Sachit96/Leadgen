@@ -3,11 +3,17 @@ import { outer } from '@/lib/db/sql';
 import { getDb } from '@/lib/db';
 import {
   appointments,
+  callAttempts,
   campaignMemberships,
   campaignVariants,
   campaigns,
+  companies,
   contacts,
   conversations,
+  leadDiscoveryRecords,
+  leadEnrichment,
+  leadPersonalization,
+  leadSearchJobs,
   messages,
   pipelineDeals,
 } from '@/lib/db/schema';
@@ -434,5 +440,125 @@ export async function revenueBySource(ctx: Ctx) {
     .leftJoin(pipelineDeals, eq(pipelineDeals.contactId, contacts.id))
     .where(eq(contacts.organizationId, ctx.organizationId))
     .groupBy(sql`coalesce(${contacts.source}, 'unknown')`);
+  return rows;
+}
+
+/* ------------------------------------------------- lead generation + calling */
+
+/**
+ * The lead-generation funnel, counted from the records themselves.
+ *
+ * Every stage after discovery counts the same population — contacts promoted
+ * from a discovery record in this range — so the stages are comparable to each
+ * other. Mixing search-job totals with all-contacts counts produced a funnel
+ * that widened halfway down, which is worse than no funnel.
+ *
+ * "Crawled" counts crawls attempted, not crawls that succeeded: a site that
+ * will not load is a finding about the business, and the lead still progresses.
+ */
+export async function leadFunnel(ctx: Ctx, range: DateRange) {
+  const db = getDb();
+
+  const searchRows = await db
+    .select({
+      searches: sql<number>`count(*)::int`,
+      discovered: sql<number>`coalesce(sum(${leadSearchJobs.discoveredCount}), 0)::int`,
+      unique: sql<number>`coalesce(sum(${leadSearchJobs.uniqueCount}), 0)::int`,
+      duplicates: sql<number>`coalesce(sum(${leadSearchJobs.duplicateCount}), 0)::int`,
+      failed: sql<number>`coalesce(sum(${leadSearchJobs.failedCount}), 0)::int`,
+    })
+    .from(leadSearchJobs)
+    .where(
+      and(
+        eq(leadSearchJobs.organizationId, ctx.organizationId),
+        gte(leadSearchJobs.createdAt, range.from),
+        lte(leadSearchJobs.createdAt, range.to),
+      ),
+    );
+
+  const stageRows = await db
+    .select({
+      promoted: sql<number>`count(*)::int`,
+      crawled: sql<number>`count(*) filter (where exists (
+        select 1 from ${leadEnrichment} le
+        where le.company_id = ${outer(companies.id)} and le.kind = 'website'
+      ))::int`,
+      researched: sql<number>`count(*) filter (where ${companies.researchedAt} is not null)::int`,
+      scored: sql<number>`count(*) filter (where ${contacts.score} is not null)::int`,
+      personalized: sql<number>`count(*) filter (where exists (
+        select 1 from ${leadPersonalization} lp where lp.contact_id = ${outer(contacts.id)}
+      ))::int`,
+      callReady: sql<number>`count(*) filter (where ${contacts.callReadiness} in ('READY','QUEUED'))::int`,
+      called: sql<number>`count(*) filter (where exists (
+        select 1 from ${callAttempts} ca where ca.contact_id = ${outer(contacts.id)}
+      ))::int`,
+    })
+    .from(contacts)
+    .innerJoin(leadDiscoveryRecords, eq(leadDiscoveryRecords.contactId, contacts.id))
+    .leftJoin(companies, eq(companies.id, contacts.companyId))
+    .where(
+      and(
+        eq(contacts.organizationId, ctx.organizationId),
+        gte(contacts.createdAt, range.from),
+        lte(contacts.createdAt, range.to),
+      ),
+    );
+
+  const s = searchRows[0];
+  const t = stageRows[0];
+
+  return {
+    searches: s?.searches ?? 0,
+    discovered: s?.discovered ?? 0,
+    duplicates: s?.duplicates ?? 0,
+    failed: s?.failed ?? 0,
+    promoted: t?.promoted ?? 0,
+    crawled: t?.crawled ?? 0,
+    researched: t?.researched ?? 0,
+    scored: t?.scored ?? 0,
+    personalized: t?.personalized ?? 0,
+    callReady: t?.callReady ?? 0,
+    called: t?.called ?? 0,
+  };
+}
+
+/** Call outcomes in a range, for the outcome breakdown. */
+export async function callOutcomeBreakdown(ctx: Ctx, range: DateRange) {
+  const rows = await getDb()
+    .select({ outcome: callAttempts.outcome, count: sql<number>`count(*)::int` })
+    .from(callAttempts)
+    .where(
+      and(
+        eq(callAttempts.organizationId, ctx.organizationId),
+        gte(callAttempts.startedAt, range.from),
+        lte(callAttempts.startedAt, range.to),
+      ),
+    )
+    .groupBy(callAttempts.outcome)
+    .orderBy(sql`count(*) desc`);
+
+  return rows;
+}
+
+/** Calls started and booked per day. */
+export async function callsDailySeries(ctx: Ctx, range: DateRange) {
+  const rows = await getDb()
+    .select({
+      day: sql<string>`to_char(${callAttempts.startedAt}, 'YYYY-MM-DD')`,
+      started: sql<number>`count(*)::int`,
+      booked: sql<number>`count(*) filter (where ${callAttempts.outcome} = 'BOOKED')::int`,
+      dispositioned: sql<number>`count(*) filter (where ${callAttempts.outcome} <> 'INITIATED')::int`,
+    })
+    .from(callAttempts)
+    .where(
+      and(
+        eq(callAttempts.organizationId, ctx.organizationId),
+        gte(callAttempts.startedAt, range.from),
+        lte(callAttempts.startedAt, range.to),
+      ),
+    )
+    .groupBy(sql`to_char(${callAttempts.startedAt}, 'YYYY-MM-DD')`)
+    .orderBy(sql`to_char(${callAttempts.startedAt}, 'YYYY-MM-DD')`);
+
   return rows;
 }

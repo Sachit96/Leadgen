@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireCtx } from '@/lib/auth/context';
 import { leadViewCounts, listLeads, type LeadFilters, type LeadView } from '@/lib/services/leads';
 import { listCallQueues } from '@/lib/services/call-queue';
+import { listCampaigns } from '@/lib/services/campaigns';
 import { listIndustries } from '@/lib/services/companies';
 import { listCities } from '@/lib/services/contacts';
 import { PageHeader } from '@/components/ui/primitives';
@@ -51,12 +52,13 @@ export default async function LeadsPage({
 
   const page = Number(params.page ?? 1) || 1;
 
-  const [result, counts, industries, cities, queues] = await Promise.all([
+  const [result, counts, industries, cities, queues, campaigns] = await Promise.all([
     listLeads(ctx, { filters, page, pageSize: 50 }),
     leadViewCounts(ctx),
     listIndustries(ctx),
     listCities(ctx),
     listCallQueues(ctx),
+    listCampaigns(ctx),
   ]);
 
   return (
@@ -86,6 +88,9 @@ export default async function LeadsPage({
         industries={industries}
         cities={cities}
         queues={queues.map((q) => ({ id: q.queue.id, name: q.queue.name }))}
+        campaigns={campaigns
+          .filter((c) => c.campaign.status === 'ACTIVE' || c.campaign.status === 'DRAFT')
+          .map((c) => ({ id: c.campaign.id, name: c.campaign.name }))}
         canWrite={ctx.role !== 'VIEWER'}
       />
     </div>
