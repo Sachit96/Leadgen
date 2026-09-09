@@ -38,6 +38,18 @@ const schema = z.object({
   AI_MODEL_FAST: z.string().default('claude-haiku-4-5-20251001'),
   AI_MODEL_SMART: z.string().default('claude-sonnet-5'),
 
+  // --- Lead discovery ------------------------------------------------------
+  LEAD_DISCOVERY_PROVIDER: z.enum(['google_places', 'mock']).default('mock'),
+  /** Google Places API (New). Billed per request — see LEAD_DISCOVERY_MAX_REQUESTS. */
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
+  /** Hard ceiling on provider requests per search job. */
+  LEAD_DISCOVERY_MAX_REQUESTS: z.string().default('10'),
+  /** Politeness controls for the website crawler. */
+  CRAWL_CONCURRENCY: z.string().default('4'),
+  CRAWL_TIMEOUT_MS: z.string().default('10000'),
+  CRAWL_MAX_PAGES: z.string().default('6'),
+  CRAWL_USER_AGENT: z.string().default('OnRadarBot/1.0 (+https://onradar.example/bot)'),
+
   // --- Calendar ------------------------------------------------------------
   CALENDAR_PROVIDER: z.enum(['google', 'internal']).default('internal'),
   GOOGLE_CLIENT_ID: z.string().optional(),
@@ -85,6 +97,7 @@ export function integrationStatus(e: Env = env()) {
   const telnyxReady = Boolean(e.TELNYX_API_KEY && e.TELNYX_PHONE_NUMBER);
   const anthropicReady = Boolean(e.ANTHROPIC_API_KEY);
   const googleReady = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET && e.GOOGLE_REFRESH_TOKEN);
+  const placesReady = Boolean(e.GOOGLE_PLACES_API_KEY);
   return {
     sms: {
       selected: e.SMS_PROVIDER,
@@ -100,6 +113,11 @@ export function integrationStatus(e: Env = env()) {
       selected: e.AI_PROVIDER,
       effective: e.AI_PROVIDER === 'anthropic' && anthropicReady ? 'anthropic' : 'mock',
       anthropicReady,
+    },
+    discovery: {
+      selected: e.LEAD_DISCOVERY_PROVIDER,
+      effective: e.LEAD_DISCOVERY_PROVIDER === 'google_places' && placesReady ? 'google_places' : 'mock',
+      placesReady,
     },
     calendar: {
       selected: e.CALENDAR_PROVIDER,

@@ -66,6 +66,18 @@ export const notificationTypeEnum = pgEnum('notification_type', E.NOTIFICATION_T
 
 export const providerKindEnum = pgEnum('provider_kind', E.PROVIDER_KINDS);
 
+export const searchJobStatusEnum = pgEnum('search_job_status', E.SEARCH_JOB_STATUSES);
+export const leadStageEnum = pgEnum('lead_stage', E.LEAD_STAGES);
+export const leadJobTypeEnum = pgEnum('lead_job_type', E.LEAD_JOB_TYPES);
+export const leadJobStatusEnum = pgEnum('lead_job_status', E.LEAD_JOB_STATUSES);
+export const discoveryProviderEnum = pgEnum('discovery_provider', E.DISCOVERY_PROVIDERS);
+export const duplicateReasonEnum = pgEnum('duplicate_reason', E.DUPLICATE_REASONS);
+export const callReadinessEnum = pgEnum('call_readiness', E.CALL_READINESS);
+export const callQueueStatusEnum = pgEnum('call_queue_status', E.CALL_QUEUE_STATUSES);
+export const callQueueItemStatusEnum = pgEnum('call_queue_item_status', E.CALL_QUEUE_ITEM_STATUSES);
+export const callOutcomeEnum = pgEnum('call_outcome', E.CALL_OUTCOMES);
+export const callProviderEnum = pgEnum('call_provider', E.CALL_PROVIDERS);
+
 /* ------------------------------------------------------- tenancy & identity */
 
 export const organizations = pgTable('organizations', {
@@ -170,11 +182,39 @@ export const companies = pgTable(
     researchOutreachAngle: text('research_outreach_angle'),
     researchConfidence: real('research_confidence'),
     researchedAt: timestamp('researched_at', { withTimezone: true }),
+
+    /* --- discovery provenance (lead generation) --- */
+    /** Stable id from the discovery provider; the strongest dedupe key. */
+    externalId: text('external_id'),
+    discoverySource: discoveryProviderEnum('discovery_source'),
+    sourceUrl: text('source_url'),
+    /** Comparison key: suffixes and punctuation stripped. Not for display. */
+    nameKey: text('name_key'),
+    /** Registrable domain of `website`, for dedupe and signal lookup. */
+    websiteDomain: text('website_domain'),
+    addressLine: text('address_line'),
+    postalCode: text('postal_code'),
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    categories: jsonb('categories').notNull().default(sql`'[]'::jsonb`),
+    hours: jsonb('hours'),
+    /** 0-100, versioned. Distinct from websiteQuality's coarse label. */
+    websiteQualityScore: integer('website_quality_score'),
+    websiteQualityVersion: text('website_quality_version'),
+    /** 0-100: how much of the record we actually know. */
+    dataCompleteness: integer('data_completeness'),
+    enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+    /** Hash of crawled content, so enrichment is not repeated needlessly. */
+    contentHash: text('content_hash'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('companies_org_idx').on(t.organizationId),
+    uniqueIndex('companies_org_external_unique').on(t.organizationId, t.externalId),
+    index('companies_name_key_idx').on(t.organizationId, t.nameKey),
+    index('companies_domain_idx').on(t.organizationId, t.websiteDomain),
     index('companies_industry_idx').on(t.organizationId, t.industry),
     index('companies_name_idx').on(t.organizationId, t.name),
   ],
@@ -208,6 +248,22 @@ export const contacts = pgTable(
     lastActivityAt: timestamp('last_activity_at', { withTimezone: true }),
     nextActionAt: timestamp('next_action_at', { withTimezone: true }),
     nextAction: text('next_action'),
+
+    /* --- calling --- */
+    callReadiness: callReadinessEnum('call_readiness').notNull().default('NOT_READY'),
+    /** Confidence that this number reaches this business, 0-1. */
+    phoneConfidence: real('phone_confidence'),
+    phoneValidated: boolean('phone_validated').notNull().default(false),
+    callAttemptCount: integer('call_attempt_count').notNull().default(0),
+    noAnswerCount: integer('no_answer_count').notNull().default(0),
+    lastCallAt: timestamp('last_call_at', { withTimezone: true }),
+    lastCallOutcome: callOutcomeEnum('last_call_outcome'),
+    nextCallbackAt: timestamp('next_callback_at', { withTimezone: true }),
+    /** Set on WRONG_NUMBER so the number is never dialled again. */
+    phoneInvalid: boolean('phone_invalid').notNull().default(false),
+    /** Marks seeded records so demo data is never mistaken for real leads. */
+    isDemo: boolean('is_demo').notNull().default(false),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -219,6 +275,8 @@ export const contacts = pgTable(
     index('contacts_score_idx').on(t.organizationId, t.score),
     index('contacts_next_action_idx').on(t.organizationId, t.nextActionAt),
     index('contacts_created_idx').on(t.organizationId, t.createdAt),
+    index('contacts_call_readiness_idx').on(t.organizationId, t.callReadiness),
+    index('contacts_callback_idx').on(t.organizationId, t.nextCallbackAt),
   ],
 );
 
@@ -928,3 +986,393 @@ export const campaignStepsRelations = relations(campaignSteps, ({ many, one }) =
 export const companiesRelations = relations(companies, ({ many }) => ({
   contacts: many(contacts),
 }));
+
+/* ==========================================================================
+ * Lead generation
+ *
+ * Discovery output lands in `lead_discovery_records` with its raw provider
+ * payload intact, and is only promoted into `companies` + `contacts` once it
+ * has been normalized and deduplicated. Nothing here is a second prospect
+ * system: promotion writes to the existing CRM tables.
+ * ======================================================================== */
+
+export const savedSearches = pgTable(
+  'saved_searches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    query: text('query').notNull(),
+    location: text('location').notNull(),
+    radiusMeters: integer('radius_meters').notNull().default(25_000),
+    filters: jsonb('filters').notNull().default(sql`'{}'::jsonb`),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('saved_searches_org_name_unique').on(t.organizationId, t.name)],
+);
+
+export const leadSearchJobs = pgTable(
+  'lead_search_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    savedSearchId: uuid('saved_search_id').references(() => savedSearches.id, { onDelete: 'set null' }),
+    query: text('query').notNull(),
+    location: text('location').notNull(),
+    radiusMeters: integer('radius_meters').notNull().default(25_000),
+    filters: jsonb('filters').notNull().default(sql`'{}'::jsonb`),
+    provider: discoveryProviderEnum('provider').notNull().default('mock'),
+    status: searchJobStatusEnum('status').notNull().default('DRAFT'),
+    requestedCount: integer('requested_count').notNull().default(100),
+
+    /* Counters, incremented as the pipeline actually completes work. */
+    discoveredCount: integer('discovered_count').notNull().default(0),
+    uniqueCount: integer('unique_count').notNull().default(0),
+    duplicateCount: integer('duplicate_count').notNull().default(0),
+    enrichedCount: integer('enriched_count').notNull().default(0),
+    researchedCount: integer('researched_count').notNull().default(0),
+    scoredCount: integer('scored_count').notNull().default(0),
+    approvedCount: integer('approved_count').notNull().default(0),
+    failedCount: integer('failed_count').notNull().default(0),
+
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    error: text('error'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('lead_search_jobs_org_status_idx').on(t.organizationId, t.status),
+    index('lead_search_jobs_created_idx').on(t.organizationId, t.createdAt),
+  ],
+);
+
+export const leadDiscoveryRecords = pgTable(
+  'lead_discovery_records',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    searchJobId: uuid('search_job_id').references(() => leadSearchJobs.id, { onDelete: 'cascade' }),
+    provider: discoveryProviderEnum('provider').notNull(),
+    /** Provider's own id for the business. */
+    externalId: text('external_id'),
+    stage: leadStageEnum('stage').notNull().default('DISCOVERED'),
+
+    /** Exactly what the provider returned. Never edited. */
+    raw: jsonb('raw').notNull().default(sql`'{}'::jsonb`),
+
+    /* Normalized view of the raw payload. */
+    businessName: text('business_name').notNull(),
+    nameKey: text('name_key'),
+    phone: text('phone'),
+    phoneRaw: text('phone_raw'),
+    email: text('email'),
+    website: text('website'),
+    websiteDomain: text('website_domain'),
+    addressLine: text('address_line'),
+    city: text('city'),
+    province: text('province'),
+    postalCode: text('postal_code'),
+    country: text('country'),
+    category: text('category'),
+    categories: jsonb('categories').notNull().default(sql`'[]'::jsonb`),
+    googleRating: real('google_rating'),
+    googleReviewCount: integer('google_review_count'),
+    latitude: real('latitude'),
+    longitude: real('longitude'),
+    hours: jsonb('hours'),
+    socialUrls: jsonb('social_urls').notNull().default(sql`'{}'::jsonb`),
+    sourceUrl: text('source_url'),
+
+    /* Deduplication decision — recorded, never acted on by deletion. */
+    duplicateOfCompanyId: uuid('duplicate_of_company_id').references(() => companies.id, {
+      onDelete: 'set null',
+    }),
+    duplicateReason: duplicateReasonEnum('duplicate_reason'),
+    duplicateScore: real('duplicate_score'),
+
+    /** Set once promoted into the CRM. */
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'set null' }),
+
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+
+    discoveredAt: timestamp('discovered_at', { withTimezone: true }).notNull().defaultNow(),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('lead_discovery_external_unique').on(t.organizationId, t.provider, t.externalId),
+    index('lead_discovery_job_stage_idx').on(t.searchJobId, t.stage),
+    index('lead_discovery_org_stage_idx').on(t.organizationId, t.stage),
+    index('lead_discovery_phone_idx').on(t.organizationId, t.phone),
+  ],
+);
+
+/** Why two records were judged the same business. Nothing is silently dropped. */
+export const duplicateMatches = pgTable(
+  'duplicate_matches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    discoveryRecordId: uuid('discovery_record_id').references(() => leadDiscoveryRecords.id, {
+      onDelete: 'cascade',
+    }),
+    matchedCompanyId: uuid('matched_company_id').references(() => companies.id, { onDelete: 'cascade' }),
+    reason: duplicateReasonEnum('reason').notNull(),
+    score: real('score').notNull(),
+    evidence: jsonb('evidence').notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('duplicate_matches_company_idx').on(t.matchedCompanyId)],
+);
+
+/**
+ * Generic background work for the lead pipeline.
+ *
+ * Separate from `outbound_jobs`, which is SMS-specific: its `message_id` and
+ * `conversation_id` are NOT NULL, so it cannot carry an enrichment job without
+ * being gutted. Both are drained by the same worker tick.
+ */
+export const leadJobs = pgTable(
+  'lead_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    type: leadJobTypeEnum('type').notNull(),
+    status: leadJobStatusEnum('status').notNull().default('PENDING'),
+    /** Duplicate keys are a no-op, so a retried enqueue cannot double-run. */
+    idempotencyKey: text('idempotency_key').notNull(),
+    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+
+    searchJobId: uuid('search_job_id').references(() => leadSearchJobs.id, { onDelete: 'cascade' }),
+    discoveryRecordId: uuid('discovery_record_id').references(() => leadDiscoveryRecords.id, {
+      onDelete: 'cascade',
+    }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id').references(() => contacts.id, { onDelete: 'cascade' }),
+
+    priority: integer('priority').notNull().default(5),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(3),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull().defaultNow(),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    lockedBy: text('locked_by'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    errorCode: text('error_code'),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('lead_jobs_idempotency_unique').on(t.organizationId, t.idempotencyKey),
+    index('lead_jobs_ready_idx').on(t.status, t.scheduledAt, t.priority),
+    index('lead_jobs_search_idx').on(t.searchJobId, t.type, t.status),
+  ],
+);
+
+/** Versioned enrichment output. Kept per version so history is not destroyed. */
+export const leadEnrichment = pgTable(
+  'lead_enrichment',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    version: integer('version').notNull().default(1),
+    ok: boolean('ok').notNull().default(true),
+    /** Hash of the source content, so unchanged pages are not re-processed. */
+    contentHash: text('content_hash'),
+    input: jsonb('input').notNull().default(sql`'{}'::jsonb`),
+    output: jsonb('output').notNull().default(sql`'{}'::jsonb`),
+    pagesFetched: integer('pages_fetched'),
+    bytesFetched: integer('bytes_fetched'),
+    latencyMs: integer('latency_ms'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('lead_enrichment_company_kind_idx').on(t.companyId, t.kind, t.version),
+    index('lead_enrichment_org_idx').on(t.organizationId, t.createdAt),
+  ],
+);
+
+/**
+ * One row per detected signal, each with the evidence that produced it.
+ *
+ * Evidence is required so the app never claims a business runs ads without
+ * being able to say which tag it found and on which page.
+ */
+export const leadSignals = pgTable(
+  'lead_signals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id')
+      .notNull()
+      .references(() => companies.id, { onDelete: 'cascade' }),
+    key: text('key').notNull(),
+    category: text('category').notNull(),
+    value: text('value'),
+    detected: boolean('detected').notNull().default(true),
+    confidence: real('confidence').notNull().default(1),
+    /** What was actually found — a script src, a URL, a matched string. */
+    evidence: text('evidence'),
+    source: text('source').notNull(),
+    inferred: boolean('inferred').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('lead_signals_company_key_unique').on(t.companyId, t.key),
+    index('lead_signals_org_key_idx').on(t.organizationId, t.key),
+  ],
+);
+
+/** Generated outreach, held for review before it can be used. */
+export const leadPersonalization = pgTable(
+  'lead_personalization',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contacts.id, { onDelete: 'cascade' }),
+    campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }),
+    hook: text('hook'),
+    recommendedAngle: text('recommended_angle'),
+    openingMessage: text('opening_message'),
+    callOpener: text('call_opener'),
+    confidence: real('confidence'),
+    promptVersion: text('prompt_version'),
+    approvalStatus: text('approval_status').notNull().default('NOT_READY'),
+    approvedByUserId: uuid('approved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('lead_personalization_contact_idx').on(t.contactId, t.createdAt)],
+);
+
+/* ==========================================================================
+ * Calling
+ * ======================================================================== */
+
+export const callQueues = pgTable(
+  'call_queues',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    status: callQueueStatusEnum('status').notNull().default('ACTIVE'),
+    /** The filter that built it, so it can be rebuilt or topped up. */
+    filters: jsonb('filters').notNull().default(sql`'{}'::jsonb`),
+    assignedUserId: uuid('assigned_user_id').references(() => users.id, { onDelete: 'set null' }),
+    campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }),
+    totalCount: integer('total_count').notNull().default(0),
+    completedCount: integer('completed_count').notNull().default(0),
+    skippedCount: integer('skipped_count').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('call_queues_org_status_idx').on(t.organizationId, t.status)],
+);
+
+export const callQueueItems = pgTable(
+  'call_queue_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    queueId: uuid('queue_id')
+      .notNull()
+      .references(() => callQueues.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contacts.id, { onDelete: 'cascade' }),
+    /** 1-based, stable — this is the "N of M" the operator sees. */
+    position: integer('position').notNull(),
+    status: callQueueItemStatusEnum('status').notNull().default('PENDING'),
+    /** Ordering input, so the sort is explainable after the fact. */
+    priorityScore: real('priority_score').notNull().default(0),
+    outcome: callOutcomeEnum('outcome'),
+    skipReason: text('skip_reason'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('call_queue_items_position_unique').on(t.queueId, t.position),
+    unique('call_queue_items_contact_unique').on(t.queueId, t.contactId),
+    index('call_queue_items_next_idx').on(t.queueId, t.status, t.position),
+  ],
+);
+
+/**
+ * One row per call.
+ *
+ * `outcome` starts at INITIATED, which is all a `tel:` handoff can establish —
+ * the operator pressed the number. Anything beyond that is either marked by the
+ * human or reported by a voice provider; `connectionReported` records which.
+ */
+export const callAttempts = pgTable(
+  'call_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    contactId: uuid('contact_id')
+      .notNull()
+      .references(() => contacts.id, { onDelete: 'cascade' }),
+    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    queueId: uuid('queue_id').references(() => callQueues.id, { onDelete: 'set null' }),
+    queueItemId: uuid('queue_item_id').references(() => callQueueItems.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    campaignId: uuid('campaign_id').references(() => campaigns.id, { onDelete: 'set null' }),
+
+    phoneNumber: text('phone_number').notNull(),
+    provider: callProviderEnum('provider').notNull().default('device'),
+    outcome: callOutcomeEnum('outcome').notNull().default('INITIATED'),
+    /** True only when a provider actually told us the call connected. */
+    connectionReported: boolean('connection_reported').notNull().default(false),
+    durationSeconds: integer('duration_seconds'),
+    notInterestedReason: text('not_interested_reason'),
+    note: text('note'),
+    externalCallId: text('external_call_id'),
+
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    dispositionedAt: timestamp('dispositioned_at', { withTimezone: true }),
+    metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
+  },
+  (t) => [
+    index('call_attempts_contact_idx').on(t.contactId, t.startedAt),
+    index('call_attempts_org_started_idx').on(t.organizationId, t.startedAt),
+    index('call_attempts_queue_idx').on(t.queueId),
+  ],
+);

@@ -153,6 +153,22 @@ export const ACTIVITY_TYPES = [
   'deal_lost',
   'suppressed',
   'note',
+  'discovery_started',
+  'business_discovered',
+  'lead_normalized',
+  'duplicate_matched',
+  'enrichment_started',
+  'enrichment_completed',
+  'signals_detected',
+  'lead_approved',
+  'lead_rejected',
+  'call_queue_added',
+  'call_queue_removed',
+  'call_initiated',
+  'call_outcome',
+  'call_note',
+  'callback_scheduled',
+  'call_skipped',
 ] as const;
 
 export const NOTIFICATION_TYPES = [
@@ -167,6 +183,155 @@ export const NOTIFICATION_TYPES = [
 ] as const;
 
 export const PROVIDER_KINDS = ['twilio', 'telnyx', 'mock'] as const;
+
+/* ------------------------------------------------ lead generation & calling */
+
+export const SEARCH_JOB_STATUSES = [
+  'DRAFT',
+  'QUEUED',
+  'RUNNING',
+  'PAUSED',
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+] as const;
+
+export const LEAD_STAGES = [
+  'DISCOVERED',
+  'NORMALIZED',
+  'DUPLICATE',
+  'ENRICHING',
+  'ENRICHED',
+  'RESEARCHED',
+  'SCORED',
+  'PERSONALIZED',
+  'REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'FAILED',
+] as const;
+
+export const LEAD_JOB_TYPES = [
+  'lead_discovery',
+  'lead_normalization',
+  'lead_deduplication',
+  'website_enrichment',
+  'social_enrichment',
+  'contact_enrichment',
+  'ai_research',
+  'lead_scoring',
+  'personalization_generation',
+  'campaign_assignment',
+  'call_queue_generation',
+] as const;
+
+export const LEAD_JOB_STATUSES = [
+  'PENDING',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'DEAD',
+  'SKIPPED',
+  'CANCELLED',
+] as const;
+
+export const DISCOVERY_PROVIDERS = ['google_places', 'csv', 'mock'] as const;
+
+/** How two records were judged to be the same business. */
+export const DUPLICATE_REASONS = [
+  'place_id',
+  'phone',
+  'website_domain',
+  'email',
+  'name_and_address',
+] as const;
+
+/**
+ * Call readiness. A lead is only CALL_READY once it has a valid phone, a
+ * company, an industry, a location and a score.
+ */
+export const CALL_READINESS = ['NOT_READY', 'READY', 'QUEUED', 'CALLED', 'CALLBACK', 'COMPLETED'] as const;
+
+export const CALL_QUEUE_STATUSES = ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'] as const;
+
+export const CALL_QUEUE_ITEM_STATUSES = ['PENDING', 'CURRENT', 'COMPLETED', 'SKIPPED', 'REMOVED'] as const;
+
+/**
+ * Call outcomes.
+ *
+ * INITIATED is the only thing a `tel:` handoff can actually establish — the app
+ * knows the operator pressed the number and nothing more. Every other value is
+ * either marked by the human or supplied by a voice provider that reports it.
+ */
+export const CALL_OUTCOMES = [
+  'INITIATED',
+  'CONNECTED',
+  'BOOKED',
+  'NO_ANSWER',
+  'CALLBACK',
+  'NOT_INTERESTED',
+  'WRONG_NUMBER',
+  'VOICEMAIL',
+  'BUSY',
+  'CONNECTED_NO_INTEREST',
+  'QUALIFIED',
+  'FOLLOW_UP',
+  'BAD_NUMBER',
+  'FAILED',
+  'SKIPPED',
+] as const;
+
+/** The five that are always on screen. */
+export const PRIMARY_DISPOSITIONS = [
+  'BOOKED',
+  'NO_ANSWER',
+  'CALLBACK',
+  'NOT_INTERESTED',
+  'WRONG_NUMBER',
+] as const;
+
+export const NOT_INTERESTED_REASONS = [
+  'Already has a solution',
+  'Not interested',
+  'Bad timing',
+  'Too expensive',
+  'Wrong service',
+  'Other',
+] as const;
+
+export const SKIP_REASONS = [
+  'Bad timing',
+  'Need research',
+  'Wrong time zone',
+  'Already called',
+  'Other',
+] as const;
+
+export const CALL_PROVIDERS = ['device', 'twilio_voice', 'telnyx_voice'] as const;
+
+export const NEXT_ACTIONS = ['CALL', 'CALLBACK', 'SEND_SMS', 'RESEARCH', 'BOOK', 'WAIT', 'CLOSE'] as const;
+
+export type SearchJobStatus = (typeof SEARCH_JOB_STATUSES)[number];
+export type LeadStage = (typeof LEAD_STAGES)[number];
+export type LeadJobType = (typeof LEAD_JOB_TYPES)[number];
+export type LeadJobStatus = (typeof LEAD_JOB_STATUSES)[number];
+export type DiscoveryProviderKind = (typeof DISCOVERY_PROVIDERS)[number];
+export type DuplicateReason = (typeof DUPLICATE_REASONS)[number];
+export type CallReadiness = (typeof CALL_READINESS)[number];
+export type CallQueueStatus = (typeof CALL_QUEUE_STATUSES)[number];
+export type CallQueueItemStatus = (typeof CALL_QUEUE_ITEM_STATUSES)[number];
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+export type PrimaryDisposition = (typeof PRIMARY_DISPOSITIONS)[number];
+export type CallProviderKind = (typeof CALL_PROVIDERS)[number];
+export type NextAction = (typeof NEXT_ACTIONS)[number];
+
+export const DISPOSITION_LABELS: Record<PrimaryDisposition, string> = {
+  BOOKED: 'Booked',
+  NO_ANSWER: 'No answer',
+  CALLBACK: 'Callback',
+  NOT_INTERESTED: 'Not interested',
+  WRONG_NUMBER: 'Wrong number',
+};
 
 export type UserRole = (typeof USER_ROLES)[number];
 export type ProspectStatus = (typeof PROSPECT_STATUSES)[number];

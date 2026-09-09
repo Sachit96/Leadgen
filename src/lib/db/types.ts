@@ -29,6 +29,19 @@ export type KnowledgeEntry = InferSelectModel<typeof s.knowledgeEntries>;
 export type Objection = InferSelectModel<typeof s.objections>;
 export type SuppressionEntry = InferSelectModel<typeof s.suppressionEntries>;
 
+export type SavedSearch = InferSelectModel<typeof s.savedSearches>;
+export type LeadSearchJob = InferSelectModel<typeof s.leadSearchJobs>;
+export type LeadDiscoveryRecord = InferSelectModel<typeof s.leadDiscoveryRecords>;
+export type NewLeadDiscoveryRecord = InferInsertModel<typeof s.leadDiscoveryRecords>;
+export type LeadJob = InferSelectModel<typeof s.leadJobs>;
+export type LeadEnrichmentRow = InferSelectModel<typeof s.leadEnrichment>;
+export type LeadSignal = InferSelectModel<typeof s.leadSignals>;
+export type LeadPersonalizationRow = InferSelectModel<typeof s.leadPersonalization>;
+export type DuplicateMatch = InferSelectModel<typeof s.duplicateMatches>;
+export type CallQueue = InferSelectModel<typeof s.callQueues>;
+export type CallQueueItem = InferSelectModel<typeof s.callQueueItems>;
+export type CallAttempt = InferSelectModel<typeof s.callAttempts>;
+
 export type {
   UserRole,
   ProspectStatus,
@@ -48,6 +61,19 @@ export type {
   ProviderKind,
   NotificationType,
   MembershipStatus,
+  SearchJobStatus,
+  LeadStage,
+  LeadJobType,
+  LeadJobStatus,
+  DiscoveryProviderKind,
+  DuplicateReason,
+  CallReadiness,
+  CallQueueStatus,
+  CallQueueItemStatus,
+  CallOutcome,
+  PrimaryDisposition,
+  CallProviderKind,
+  NextAction,
 } from '@/lib/constants/enums';
 
 export {
@@ -56,4 +82,9 @@ export {
   PIPELINE_STAGES,
   CAMPAIGN_STATUSES,
   USER_ROLES,
+  SEARCH_JOB_STATUSES,
+  LEAD_STAGES,
+  CALL_OUTCOMES,
+  PRIMARY_DISPOSITIONS,
+  CALL_READINESS,
 } from '@/lib/constants/enums';
