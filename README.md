@@ -150,6 +150,32 @@ send, stops the campaign membership, cancels queued jobs and closes the
 conversation. Numbers that opted out themselves cannot be un-suppressed from the
 UI — that consent is theirs to give back.
 
+### The scraper reads the site, not a list of guesses
+
+Discovery calls the configured provider — Google Places today — and every
+business it returns keeps its provider id, source URL and raw payload.
+
+Crawling starts at the homepage and then follows the site's own navigation,
+classifying each link by what it is likely to answer and fetching one page per
+role before a second of the same kind. That finds `/our-services` and
+`/free-estimate`; a fixed path list finds neither. robots.txt is obeyed, bytes
+and time are capped, requests are sequential per domain, and every URL
+considered is recorded with why it was fetched, skipped or failed.
+
+What it fetches is kept. Each page is stored normalized — url, role, title,
+headings, text — and the research agent reads those pages, each section headed
+by the URL it came from, so every claim can be traced to a page you can open.
+
+Signals are the qualification layer, not an inventory: paying for traffic with
+nothing to convert it, no lead form, no booking flow, hard to contact, no
+follow-up system, high-value services, large service area, emergency work. Each
+one carries its evidence and the page it is on. A signal we could not establish
+is recorded as no evidence, never as a claim about the business.
+
+A provider that is selected but unconfigured is an error, not a quiet downgrade
+to synthetic data — a misconfigured deployment should not look like a working
+one.
+
 ### Leads are prospects, not a second database
 
 Lead generation writes into the CRM that already exists. A discovered business

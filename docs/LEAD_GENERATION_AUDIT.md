@@ -217,3 +217,80 @@ Every phase landed. Notes where reality differed:
   enrichment, research, scoring and personalization against the synthetic
   provider rather than inserting rows that mimic their output — data that
   skipped the pipeline would hide exactly the bugs a demo should surface.
+
+---
+
+## 9. The scraper, built out
+
+The first pass built the pipeline's skeleton and the screens around it. This
+pass made the discovery and crawling half real.
+
+### 9.1 The crawler reads the site, not a list of guesses
+
+It fetched eleven hardcoded paths. It now fetches the homepage, reads the
+site's own navigation, classifies each link by what it is likely to answer
+(services, contact, quote, about, service area, pricing), ranks them, and
+fetches one page per role before any second page of the same role. Assets,
+legal pages and blog archives never cost a request. On the synthetic corpus
+this finds `/our-services`, `/meet-the-team`, `/get-in-touch`,
+`/request-an-estimate` and `/areas-we-serve` — none of which a fixed path list
+would have found.
+
+Every URL considered is recorded with the outcome and the reason, and that
+trail is rendered in the admin panel.
+
+### 9.2 Content is kept, per page
+
+The QA finding (§7.2) is fixed at the root rather than patched. Each crawled
+page is stored normalized — url, role, title, headings, text — on a budget
+spread across the pages rather than spent on whichever came first. The research
+agent assembles its prompt from those pages, each section headed by the URL it
+came from, so a claim in the output can be traced to a page an operator can
+open. The untrusted-content fence is unchanged and now states that the block is
+per-page scraped content and that text claiming the block has ended is part of
+the data.
+
+### 9.3 Signals became qualification, not inventory
+
+Technology detection said what was on the site. The added layer says why the
+business is worth a call: outdated site, missing CTA, no lead form, no booking
+flow, weak contact experience, no follow-up mechanism, paying for traffic,
+spending without conversion, high-value services, large service area,
+emergency work.
+
+Each carries its evidence, the URL that evidence is on, and an `inferred` flag,
+because these are judgements drawn from observations rather than observations.
+Absence stays absence: a signal that could not be established is
+`detected: false` with null evidence, and the UI says so in words — "No
+evidence found for … That is not proof they lack it."
+
+### 9.4 The synthetic world got websites
+
+The mock provider invents businesses on `.example`, which RFC 2606 guarantees
+cannot resolve. The consequence was that a demo discovered 190 businesses and
+crawled none: the crawler, extractor, signal detector and research agent all
+idle behind failed fetches, and a lead inbox full of records nothing had ever
+looked at.
+
+`syntheticFetch` serves those businesses a generated site — deterministic per
+host, varied enough that signal detection has hits and misses, some
+deliberately dead. Its safety is structural, not careful: it throws for any
+host not under `.example`, and it is wired in only when the *discovery*
+provider is the mock one. A configured provider always crawls the real
+internet.
+
+### 9.5 A misconfigured provider is an error, not a silent downgrade
+
+`getDiscoveryProvider()` used to fall back to synthetic data when
+`google_places` was selected without a key. A misconfigured production
+deployment would have looked like a working one and filled a real call queue
+with fictional businesses on 555 numbers. It now throws with the variable name
+and the way out, and the lead-generation page reports it instead of running.
+
+### 9.6 More bugs the tests and the browser found
+
+| Found by | Bug |
+|---|---|
+| Writing the signal tests | `BOOKING_HOSTS` matched `book.` anywhere in a URL, and `facebook.com` contains it — so any business with a Facebook link was recorded as having online booking, inflating its website quality score and suppressing `no_online_booking`. |
+| Loading a lead in a browser | Service areas were read out of the navigation menu: nav link text runs together into "… Service Areas … Privacy", and "Privacy" was stored as a town the business serves. |
+| Browser console | `/prospects` discarded and rebuilt its React tree on every load — a relative timestamp rendered server-side and rehydrated client-side across a minute boundary. |
