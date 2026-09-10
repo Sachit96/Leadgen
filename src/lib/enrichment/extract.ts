@@ -12,6 +12,23 @@ import type { CrawlPage } from './crawler';
  * where it reaches the model it goes inside an explicitly delimited block.
  */
 
+/**
+ * Removes navigation, headers and footers.
+ *
+ * Nav link text runs together into the page text — "Services Contact Free
+ * Estimate Service Areas Privacy" — which is enough to satisfy a pattern
+ * looking for "service areas: <list>" and produced "Privacy" as a town the
+ * business serves. Chrome is stripped wherever we read prose about the
+ * business, and kept where we look for markup (forms, tel: links, tags).
+ */
+export function stripChrome(html: string): string {
+  return html
+    .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<(ul|div)\b[^>]*\b(class|id)=["'][^"']*\b(nav|menu|breadcrumb)\b[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi, ' ');
+}
+
 /** Strips scripts, styles and tags, leaving readable text. */
 export function htmlToText(html: string): string {
   return html
@@ -232,7 +249,9 @@ export function extractPage(page: CrawlPage, maxChars: number): ExtractedPage {
     role: page.role,
     title: pageTitle(page.html),
     headings: extractHeadings(page.html),
-    text: htmlToText(page.html).slice(0, maxChars),
+    // Chrome removed: the same nav on every page wastes the model's budget and
+    // adds nothing about the business.
+    text: htmlToText(stripChrome(page.html)).slice(0, maxChars),
     bytes: page.bytes,
   };
 }
@@ -292,6 +311,8 @@ export function extractSite(pages: CrawlPage[]): ExtractedSite {
   const home = pages.find((p) => p.path === '/') ?? pages[0];
   const combinedHtml = pages.map((p) => p.html).join('\n');
   const text = pages.map((p) => htmlToText(p.html)).join('\n').slice(0, 200_000);
+  // Prose only: nav text is a list of links, not a description of the business.
+  const prose = pages.map((p) => htmlToText(stripChrome(p.html))).join('\n').slice(0, 200_000);
 
   const bookingLinks: string[] = [];
   for (const match of combinedHtml.matchAll(/href=["'](https?:\/\/[^"']+)["']/gi)) {
@@ -308,7 +329,7 @@ export function extractSite(pages: CrawlPage[]): ExtractedSite {
 
   return {
     title: home ? pageTitle(home.html) : null,
-    description: extractDescription(metaDescription, text),
+    description: extractDescription(metaDescription, prose),
     text,
     emails: extractEmails(combinedHtml, text),
     phones: extractPhones(combinedHtml, text),
@@ -319,7 +340,7 @@ export function extractSite(pages: CrawlPage[]): ExtractedSite {
     // never lost behind a long homepage.
     pages: pages.map((page) => extractPage(page, PER_PAGE_TEXT_LIMIT)),
     headings: home ? extractHeadings(home.html) : [],
-    serviceAreas: extractServiceAreas(text),
+    serviceAreas: extractServiceAreas(prose),
     emergencyMention: mentionsEmergencyService(text),
   };
 }

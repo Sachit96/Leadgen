@@ -20,6 +20,14 @@ export type SearchFilters = {
   requirePhone?: boolean;
   requireSocial?: boolean;
   openNow?: boolean;
+  /**
+   * Applied after scoring, not by the provider.
+   *
+   * A provider has no idea what our ICP score is, so this cannot be pushed down
+   * into the search. Leads below it are still discovered, crawled, researched
+   * and stored — they are simply not put in front of a reviewer.
+   */
+  minScore?: number;
 };
 
 export type SearchRequest = {

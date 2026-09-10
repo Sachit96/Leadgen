@@ -12,6 +12,7 @@ import { logger } from '@/lib/core/logger';
 import { errorMessage } from '@/lib/core/errors';
 import { systemCtx, type Ctx } from '@/lib/auth/context';
 import { getDiscoveryProvider, DiscoveryError } from '@/lib/lead-generation/providers';
+import { syntheticFetch } from '@/lib/lead-generation/providers/mock-web';
 import { normalizeDiscoveredBusiness, type NormalizedLead } from '@/lib/lead-generation/normalize';
 import { findDuplicate, recordDuplicate } from '@/lib/lead-generation/dedupe';
 import { crawlWebsite } from '@/lib/enrichment/crawler';
@@ -331,7 +332,15 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
       ),
     );
 
-  const crawl = await crawlWebsite(company.website);
+  // The synthetic provider's businesses live on the reserved .example TLD,
+  // which cannot resolve. When — and only when — discovery is the mock one,
+  // crawl them from the matching synthetic site so the demo exercises the real
+  // crawler, extractor, signal detector and research agent instead of a wall of
+  // failed fetches. A configured provider always crawls the real internet.
+  const provider = getDiscoveryProvider();
+  const crawl = await crawlWebsite(company.website, {
+    fetchImpl: provider.kind === 'mock' ? syntheticFetch : undefined,
+  });
 
   if (!crawl.ok) {
     // A site that will not load is a real finding about the business, not a
@@ -566,6 +575,22 @@ export async function runScoring(job: ClaimedLeadJob): Promise<StageResult> {
 
   await refreshCallReadiness(ctx, job.contactId);
 
+  // The run's minimum score, applied here because a discovery provider has no
+  // notion of our ICP. A lead below the bar is kept in full — discovered,
+  // crawled, researched, scored — it just does not consume a reviewer's
+  // attention or an AI call for an opening line.
+  const minScore = job.searchJobId ? await searchMinScore(job.searchJobId) : null;
+  if (minScore !== null && result.score < minScore) {
+    await db
+      .update(leadDiscoveryRecords)
+      .set({ stage: 'SCORED' })
+      .where(eq(leadDiscoveryRecords.contactId, job.contactId));
+    return {
+      result: 'ok',
+      detail: `scored ${result.score}, below this run's minimum of ${minScore}`,
+    };
+  }
+
   await enqueueLeadJob(ctx, {
     type: 'personalization_generation',
     idempotencyKey: `personalize:${job.contactId}`,
@@ -577,6 +602,17 @@ export async function runScoring(job: ClaimedLeadJob): Promise<StageResult> {
   });
 
   return { result: 'ok', detail: `scored ${result.score} (${result.bucket})` };
+}
+
+/** The minimum lead score the run was started with, if any. */
+async function searchMinScore(searchJobId: string): Promise<number | null> {
+  const rows = await getDb()
+    .select({ filters: leadSearchJobs.filters })
+    .from(leadSearchJobs)
+    .where(eq(leadSearchJobs.id, searchJobId))
+    .limit(1);
+  const minScore = (rows[0]?.filters as { minScore?: number } | undefined)?.minScore;
+  return typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : null;
 }
 
 /**

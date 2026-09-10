@@ -144,6 +144,28 @@ describe('service area extraction', () => {
     // Nothing claimed when nothing was said.
     expect(extractServiceAreas('We install roofs.')).toEqual([]);
   });
+
+  it('reads areas from prose, not from the navigation menu', async () => {
+    const { extractSite, stripChrome } = await import('@/lib/enrichment/extract');
+    const { pageFromHtml } = await import('@/lib/enrichment/crawler');
+
+    const html = `<html><body>
+      <nav><a href="/services">Services</a><a href="/service-areas">Service Areas</a>
+        <a href="/privacy-policy">Privacy</a></nav>
+      <h1>Acme Roofing</h1>
+      <p>Proudly serving Mississauga, Oakville and Burlington.</p>
+      <footer><a href="/terms">Terms</a> <a href="/sitemap">Sitemap</a></footer>
+    </body></html>`;
+
+    expect(stripChrome(html)).not.toContain('Privacy');
+
+    const site = extractSite([pageFromHtml('https://acme.example/', html)]);
+    // Nav link text runs together into "Service Areas ... Privacy", which used
+    // to be read as a town this business serves.
+    expect(site.serviceAreas).toEqual(expect.arrayContaining(['Mississauga', 'Oakville', 'Burlington']));
+    expect(site.serviceAreas).not.toContain('Privacy');
+    expect(site.serviceAreas).not.toContain('Sitemap');
+  });
 });
 
 describe('booking link detection', () => {
@@ -227,17 +249,11 @@ describe('signal detection', () => {
 
 describe('end-to-end scrape', () => {
   let h: Harness;
-  let web: FakeWeb;
 
   beforeEach(async () => {
     h = await createHarness();
-    // The mock provider emits .example domains; serve them a real site.
-    web = installFakeWeb({});
   });
-  afterEach(async () => {
-    web.restore();
-    await h.close();
-  });
+  afterEach(async () => h.close());
 
   it('runs search → discover → crawl → research → score → dedupe → lead', async () => {
     const search = await createSearchJob(h.ctx, {
@@ -247,21 +263,6 @@ describe('end-to-end scrape', () => {
       filters: { requirePhone: true, requireWebsite: true },
     });
     await startSearchJob(h.ctx, search.id);
-
-    // Serve every domain the provider invented from one contractor fixture, so
-    // the real crawler runs against real markup.
-    const discovered = await h.discovery.searchBusinesses({
-      query: 'roofing',
-      location: 'Mississauga, ON',
-      radiusMeters: 25_000,
-      limit: 6,
-      filters: { requirePhone: true, requireWebsite: true },
-    });
-    for (const business of discovered.businesses) {
-      if (!business.website) continue;
-      web.sites[new URL(business.website).hostname] = contractorSite(business.businessName);
-    }
-
     await drain();
 
     const job = await getSearchJob(h.ctx, search.id);
@@ -280,15 +281,18 @@ describe('end-to-end scrape', () => {
     // --- and its content was stored, not thrown away -----------------------
     const enrichment = await h.db.select().from(leadEnrichment).where(eq(leadEnrichment.ok, true));
     expect(enrichment.length).toBeGreaterThan(0);
-    const output = enrichment[0]!.output as {
+    type Stored = {
       pages?: Array<{ url: string; role: string; text: string; headings: string[] }>;
       attempts?: unknown[];
       serviceAreas?: string[];
     };
-    expect(output.pages?.length).toBeGreaterThan(1);
-    expect(output.pages!.some((p) => p.role === 'services' && p.text.includes('roof replacement'))).toBe(true);
-    expect(output.attempts?.length).toBeGreaterThan(0);
-    expect(output.serviceAreas).toContain('Oakville');
+    const outputs = enrichment.map((row) => row.output as Stored);
+    expect(outputs.some((o) => (o.pages?.length ?? 0) > 1)).toBe(true);
+    // The services page's own words survive the whole way into storage.
+    expect(
+      outputs.some((o) => o.pages?.some((p) => p.role === 'services' && p.text.includes('roof repair'))),
+    ).toBe(true);
+    expect(outputs.every((o) => (o.attempts?.length ?? 0) > 0)).toBe(true);
 
     // --- THE regression this suite exists for ------------------------------
     // Crawler output must reach the research agent. Before this was fixed the
@@ -296,10 +300,15 @@ describe('end-to-end scrape', () => {
     // fence guarded a nearly empty block.
     const researchCalls = h.ai.calls.filter((c) => c.system.includes('AGENT: business_research'));
     expect(researchCalls.length).toBeGreaterThan(0);
-    const prompt = researchCalls[0]!.messages.at(-1)!.content;
-    expect(prompt).toContain('--- PAGE: ');
-    expect(prompt).toMatch(/roof replacement/);
-    expect(prompt).toContain('Proudly serving Mississauga');
+
+    const prompts = researchCalls.map((c) => c.messages.at(-1)!.content);
+    const withPages = prompts.filter((p) => p.includes('--- PAGE: '));
+    expect(withPages.length).toBeGreaterThan(0);
+
+    const prompt = withPages[0]!;
+    // Real crawled page text, attributed to the page it came from.
+    expect(prompt).toMatch(/--- PAGE: https:\/\/[^\s]+\.example[^\s]* \((home|services|about|contact|quote|service_area)\)/);
+    expect(prompt).toMatch(/roof repair|roof replacement|siding/);
     // Still fenced, and the page content sits inside the fence.
     const fence = prompt.indexOf('===== BEGIN UNTRUSTED WEBSITE CONTENT =====');
     expect(fence).toBeGreaterThan(-1);
@@ -314,8 +323,9 @@ describe('end-to-end scrape', () => {
 
     // --- scored, qualified, and visible as a lead --------------------------
     const promoted = await h.db.select().from(companies);
-    expect(promoted.every((c) => c.enrichedAt !== null)).toBe(true);
+    expect(promoted.some((c) => c.enrichedAt !== null)).toBe(true);
     expect(promoted.some((c) => (c.serviceAreas as string[]).length > 0)).toBe(true);
+    expect(promoted.some((c) => (c.services as string[]).length > 0)).toBe(true);
     expect(promoted.some((c) => c.researchSummary !== null)).toBe(true);
 
     const scored = await h.db.select().from(contacts);
@@ -342,25 +352,12 @@ describe('end-to-end scrape', () => {
     const search = await createSearchJob(h.ctx, {
       query: 'roofing',
       location: 'Mississauga, ON',
-      requestedCount: 6,
+      requestedCount: 40,
       filters: { requirePhone: true, requireWebsite: true },
     });
     await startSearchJob(h.ctx, search.id);
-
-    // Half the sites load; the rest refuse connections.
-    const discovered = await h.discovery.searchBusinesses({
-      query: 'roofing',
-      location: 'Mississauga, ON',
-      radiusMeters: 25_000,
-      limit: 6,
-      filters: { requirePhone: true, requireWebsite: true },
-    });
-    discovered.businesses.forEach((business, index) => {
-      if (!business.website) return;
-      const host = new URL(business.website).hostname;
-      web.sites[host] = index % 2 === 0 ? contractorSite(business.businessName) : { pages: {}, unreachable: true };
-    });
-
+    // Some of the synthetic businesses have no working site, exactly as some
+    // real ones do — enough of them that a batch of 40 reliably hits both.
     await drain();
 
     const job = await getSearchJob(h.ctx, search.id);
@@ -404,6 +401,32 @@ describe('end-to-end scrape', () => {
     expect(recordsAfter).toHaveLength(recordsBefore.length);
     expect(h.discovery.searches).toHaveLength(1);
     expect((await getSearchJob(h.ctx, search.id)).status).toBe('COMPLETED');
+  }, 120_000);
+
+  it("keeps leads below the run's minimum score but does not put them up for review", async () => {
+    const { leadPersonalization } = await import('@/lib/db/schema');
+
+    const search = await createSearchJob(h.ctx, {
+      query: 'roofing',
+      location: 'Mississauga, ON',
+      requestedCount: 5,
+      // Nothing the synthetic provider produces scores this high.
+      filters: { requirePhone: true, minScore: 99 },
+    });
+    await startSearchJob(h.ctx, search.id);
+    await drain();
+
+    // The leads exist in full: discovered, promoted, scored.
+    const records = await h.db.select().from(leadDiscoveryRecords);
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.every((r) => r.companyId !== null)).toBe(true);
+    const scored = await h.db.select().from(contacts);
+    expect(scored.every((c) => c.score !== null)).toBe(true);
+
+    // They are simply not queued for review, and cost no AI call for copy.
+    expect(records.every((r) => r.stage !== 'REVIEW')).toBe(true);
+    expect(await h.db.select().from(leadPersonalization)).toHaveLength(0);
+    expect((await listLeads(h.ctx, { filters: { view: 'REVIEW' } })).total).toBe(0);
   }, 120_000);
 
   it('completes a search that matched nothing without failing it', async () => {
@@ -702,6 +725,44 @@ describe('suppressed and invalid numbers', () => {
     expect(items.map((i) => i.contactId)).not.toContain(target.contactId);
     expect(items.length).toBe(ready.rows.length - 1);
   }, 120_000);
+});
+
+describe('the synthetic web', () => {
+  it('serves only the reserved .example TLD, and refuses anything real', async () => {
+    const { syntheticFetch } = await import('@/lib/lead-generation/providers/mock-web');
+
+    const ok = await syntheticFetch('https://summit-roofing.example/');
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toContain('Summit Roofing');
+
+    // The safety property: it cannot stand in front of a real request.
+    await expect(syntheticFetch('https://google.com/')).rejects.toThrow(/reserved \.example/);
+    await expect(syntheticFetch('https://acme.co.uk/')).rejects.toThrow(/reserved \.example/);
+    await expect(syntheticFetch('https://not-example.com/')).rejects.toThrow(/reserved \.example/);
+  });
+
+  it('is deterministic per host and varied across hosts', async () => {
+    const { syntheticFetch } = await import('@/lib/lead-generation/providers/mock-web');
+
+    const once = await (await syntheticFetch('https://alpha-roofing.example/')).text();
+    const twice = await (await syntheticFetch('https://alpha-roofing.example/')).text();
+    expect(once).toBe(twice);
+
+    // Across many hosts the profiles differ, so signal detection has both
+    // positives and negatives to find rather than one uniform site.
+    const viewports = await Promise.all(
+      Array.from({ length: 24 }, async (_, i) => {
+        try {
+          const html = await (await syntheticFetch(`https://firm-${i}-roofing.example/`)).text();
+          return html.includes('name="viewport"');
+        } catch {
+          return null; // a dead site, which is also a real outcome
+        }
+      }),
+    );
+    expect(viewports.some((v) => v === true)).toBe(true);
+    expect(viewports.some((v) => v === false || v === null)).toBe(true);
+  });
 });
 
 describe('provider configuration', () => {

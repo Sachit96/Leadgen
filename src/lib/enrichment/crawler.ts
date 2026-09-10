@@ -105,12 +105,25 @@ export type CrawlOptions = {
   timeoutMs?: number;
   userAgent?: string;
   signal?: AbortSignal;
+  /**
+   * The fetch to crawl with. Defaults to the global one.
+   *
+   * Injected so the synthetic provider can serve its own `.example` businesses
+   * a website — without it, a demo discovers hundreds of businesses and crawls
+   * none of them, and the whole enrichment half of the pipeline never runs.
+   */
+  fetchImpl?: typeof fetch;
 };
 
 /** Minimal robots.txt handling: honour Disallow for our agent and for `*`. */
-async function fetchDisallowedPaths(origin: string, userAgent: string, timeoutMs: number): Promise<string[]> {
+async function fetchDisallowedPaths(
+  origin: string,
+  userAgent: string,
+  timeoutMs: number,
+  fetchImpl?: typeof fetch,
+): Promise<string[]> {
   try {
-    const response = await fetchWithTimeout(`${origin}/robots.txt`, userAgent, timeoutMs);
+    const response = await fetchWithTimeout(`${origin}/robots.txt`, userAgent, timeoutMs, undefined, fetchImpl);
     if (!response.ok) return [];
     const text = (await response.text()).slice(0, 100_000);
 
@@ -190,14 +203,20 @@ export function sameOriginLinks(html: string, origin: string): string[] {
   return [...paths];
 }
 
-async function fetchWithTimeout(url: string, userAgent: string, timeoutMs: number, signal?: AbortSignal) {
+async function fetchWithTimeout(
+  url: string,
+  userAgent: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  fetchImpl: typeof fetch = fetch,
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort);
 
   try {
-    return await fetch(url, {
+    return await fetchImpl(url, {
       headers: { 'User-Agent': userAgent, Accept: 'text/html,application/xhtml+xml' },
       redirect: 'follow',
       signal: controller.signal,
@@ -231,7 +250,7 @@ export async function crawlWebsite(website: string, options: CrawlOptions = {}):
   }
 
   const origin = new URL(normalized.url).origin;
-  const disallowed = await fetchDisallowedPaths(origin, userAgent, timeoutMs);
+  const disallowed = await fetchDisallowedPaths(origin, userAgent, timeoutMs, options.fetchImpl);
 
   const pages: CrawlPage[] = [];
   const attempts: CrawlAttempt[] = [];
@@ -253,7 +272,7 @@ export async function crawlWebsite(website: string, options: CrawlOptions = {}):
     }
 
     try {
-      const response = await fetchWithTimeout(url, userAgent, timeoutMs, options.signal);
+      const response = await fetchWithTimeout(url, userAgent, timeoutMs, options.signal, options.fetchImpl);
 
       if (!response.ok) {
         attempts.push({ url, path, outcome: 'failed', status: response.status, reason: `HTTP ${response.status}` });

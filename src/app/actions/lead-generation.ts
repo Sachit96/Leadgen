@@ -21,10 +21,24 @@ function searchFilters(form: FormData) {
     minReviews: optionalNum(form, 'minReviews') ?? undefined,
     maxReviews: optionalNum(form, 'maxReviews') ?? undefined,
     minRating: optionalNum(form, 'minRating') ?? undefined,
+    minScore: optionalNum(form, 'minScore') ?? undefined,
     requirePhone: bool(form, 'requirePhone'),
     requireWebsite: bool(form, 'requireWebsite'),
     excludeChains: bool(form, 'excludeChains'),
   };
+}
+
+/**
+ * The market definition, as one query string.
+ *
+ * Keywords are appended rather than sent as a separate field because that is
+ * what a text-search provider actually accepts — Places has no keyword
+ * parameter, it has a query.
+ */
+function marketQuery(form: FormData): string {
+  const industry = str(form, 'query');
+  const keywords = str(form, 'keywords');
+  return keywords ? `${industry} ${keywords}` : industry;
 }
 
 export async function startLeadSearchAction(form: FormData) {
@@ -33,7 +47,7 @@ export async function startLeadSearchAction(form: FormData) {
     async () => {
       const ctx = await requireCtx('prospect:import');
       const job = await createSearchJob(ctx, {
-        query: str(form, 'query'),
+        query: marketQuery(form),
         location: str(form, 'location'),
         radiusMeters: num(form, 'radiusMeters', 25_000),
         requestedCount: num(form, 'requestedCount', 100),
@@ -67,7 +81,7 @@ export async function saveSearchAction(form: FormData) {
       const ctx = await requireCtx('prospect:import');
       const saved = await saveSearch(ctx, {
         name: str(form, 'name'),
-        query: str(form, 'query'),
+        query: marketQuery(form),
         location: str(form, 'location'),
         radiusMeters: num(form, 'radiusMeters', 25_000),
         filters: searchFilters(form),

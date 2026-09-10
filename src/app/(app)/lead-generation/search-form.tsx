@@ -88,6 +88,14 @@ export function SearchForm({
           />
         </Field>
 
+        <Field
+          label="Keywords"
+          htmlFor="keywords"
+          hint="Optional — narrows the search, e.g. 'flat roof commercial'"
+        >
+          <input id="keywords" name="keywords" placeholder="flat roof, commercial" className={inputClass} />
+        </Field>
+
         <Field label="Location" htmlFor="location" hint="City and province, or a full address">
           <input
             id="location"
@@ -141,6 +149,15 @@ export function SearchForm({
             </Field>
             <Field label="Min rating" htmlFor="minRating">
               <input id="minRating" name="minRating" type="number" min={0} max={5} step={0.1} className={inputClass} />
+            </Field>
+          </div>
+          <div className="mt-2">
+            <Field
+              label="Minimum lead score"
+              htmlFor="minScore"
+              hint="Leads below this are still created, but not marked for review"
+            >
+              <input id="minScore" name="minScore" type="number" min={0} max={100} className={inputClass} />
             </Field>
           </div>
           <div className="mt-2 space-y-1.5">

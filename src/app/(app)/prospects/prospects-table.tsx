@@ -227,9 +227,20 @@ export function ProspectsTable({
               <Td>
                 <ProspectStatusBadge status={row.status} />
               </Td>
-              <Td className="whitespace-nowrap text-ink-500">{formatRelative(row.lastActivityAt)}</Td>
+              {/*
+                * A relative time is computed from the clock, so the server's
+                * render and the client's rehydration can straddle a minute
+                * boundary and disagree ("1m ago" vs "2m ago"). The value is
+                * cosmetic and self-correcting, so the mismatch is suppressed
+                * rather than the whole tree being thrown away and rebuilt.
+                */}
+              <Td className="whitespace-nowrap text-ink-500">
+                <span suppressHydrationWarning>{formatRelative(row.lastActivityAt)}</span>
+              </Td>
               <Td className="text-ink-400">
-                {row.nextAction ?? (row.nextActionAt ? formatRelative(row.nextActionAt) : '—')}
+                <span suppressHydrationWarning>
+                  {row.nextAction ?? (row.nextActionAt ? formatRelative(row.nextActionAt) : '—')}
+                </span>
               </Td>
               <Td>
                 {row.conversationId ? (

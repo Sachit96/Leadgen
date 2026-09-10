@@ -136,8 +136,18 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                           </Badge>
                         ) : null}
                       </span>
-                      <span className="max-w-[55%] truncate text-right text-xs text-ink-500">
-                        {signal.evidence ?? 'observed'}
+                      <span className="max-w-[55%] text-right text-xs text-ink-500">
+                        <span className="block truncate">{signal.evidence ?? 'observed'}</span>
+                        {signal.sourceUrl ? (
+                          <a
+                            href={signal.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer noopener nofollow"
+                            className="block truncate text-[10px] text-accent-400 hover:underline"
+                          >
+                            {signal.sourceUrl}
+                          </a>
+                        ) : null}
                       </span>
                     </div>
                   ))}
@@ -207,6 +217,22 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                 }
               />
               <KeyValue label="Address" value={company?.addressLine ?? '—'} />
+              <KeyValue
+                label="Service areas"
+                value={
+                  (company?.serviceAreas as string[] | undefined)?.length
+                    ? (company!.serviceAreas as string[]).join(', ')
+                    : '—'
+                }
+              />
+              <KeyValue
+                label="Services"
+                value={
+                  (company?.services as string[] | undefined)?.length
+                    ? (company!.services as string[]).join(', ')
+                    : '—'
+                }
+              />
               <KeyValue
                 label="Google"
                 value={
