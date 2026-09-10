@@ -55,7 +55,10 @@ export function getDb(): Db {
 /** Opens whichever database DATABASE_URL points at. */
 export async function initDb(): Promise<Db> {
   const { isEmbedded, initEmbeddedDb } = await import('./embedded');
-  if (isEmbedded(env().DATABASE_URL)) return initEmbeddedDb();
+  // The embedded module returns its handle untyped so that it never imports
+  // from this file — see the note at the top of it. This is the one place that
+  // cast lives.
+  if (isEmbedded(env().DATABASE_URL)) return (await initEmbeddedDb()) as Db;
   return getDb();
 }
 

@@ -67,6 +67,19 @@ const schema = z.object({
   GOOGLE_REFRESH_TOKEN: z.string().optional(),
   GOOGLE_CALENDAR_ID: z.string().default('primary'),
 
+  /**
+   * UI preview mode.
+   *
+   * Boots an in-memory database, migrated and seeded on start, so the app runs
+   * with no PostgreSQL to install and no data directory to manage. Everything
+   * else stays real: real schema, real queries, real types, real login. The
+   * point is to remove the *setup*, not the database — stubbing services out
+   * returns plausible-looking zeros and hides the bugs you are trying to see.
+   *
+   * Nothing persists: restart the server and you get the seed back.
+   */
+  UI_PREVIEW: z.enum(['true', 'false']).default('false'),
+
   // --- Ops -----------------------------------------------------------------
   WORKER_TOKEN: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -79,13 +92,16 @@ let cached: Env | null = null;
 
 export function env(): Env {
   if (cached) return cached;
-  const parsed = schema.safeParse(process.env);
+  const parsed = schema.safeParse(previewDefaults(process.env));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('\n');
     throw new Error(
-      `Invalid environment configuration:\n${issues}\n\nCopy .env.example to .env and fill in the required values.`,
+      `Invalid environment configuration:\n${issues}\n\n` +
+        'Copy .env.example to .env and fill in the required values, or run ' +
+        '`npm run setup` for a working local database. For a throwaway UI-only ' +
+        'run with nothing to install, set UI_PREVIEW=true.',
     );
   }
   cached = parsed.data;
@@ -102,6 +118,26 @@ export function resetEnvCache(): void {
  * renders this so an operator can see at a glance what is live and what is
  * running in mock mode.
  */
+/**
+ * The two values preview mode fills in for you.
+ *
+ * Applied before validation rather than by relaxing the schema, so DATABASE_URL
+ * and SESSION_SECRET stay hard requirements everywhere else. A default signing
+ * secret is only ever safe because it cannot be reached without UI_PREVIEW.
+ */
+function previewDefaults(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (source.UI_PREVIEW !== 'true') return source;
+
+  // Written back onto process.env, not just into the parsed object: the module
+  // that opens the embedded database reads process.env.DATABASE_URL directly
+  // (it cannot import this one — see the note in db/embedded.ts). Leaving the
+  // two disagreeing meant instrumentation saw no database and the app then
+  // tried to open a Postgres pool on "pglite://memory".
+  source.DATABASE_URL ??= 'pglite://memory';
+  source.SESSION_SECRET ??= 'ui-preview-only-secret-not-for-any-deployed-environment';
+  return source;
+}
+
 export function integrationStatus(e: Env = env()) {
   const twilioReady = Boolean(e.TWILIO_ACCOUNT_SID && e.TWILIO_AUTH_TOKEN && e.TWILIO_PHONE_NUMBER);
   const telnyxReady = Boolean(e.TELNYX_API_KEY && e.TELNYX_PHONE_NUMBER);

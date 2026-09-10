@@ -12,6 +12,13 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
+  // UI preview runs with nothing configured, so the database URL is supplied
+  // here as well as in `env()`. This file cannot import that module — it would
+  // drag `pg` into this bundle — so the default is repeated rather than shared.
+  if (process.env.UI_PREVIEW === 'true') {
+    process.env.DATABASE_URL ??= 'pglite://memory';
+  }
+
   const { isEmbedded, initEmbeddedDb } = await import('@/lib/db/embedded');
   const { logger } = await import('@/lib/core/logger');
 

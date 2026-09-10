@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { getDb } from '@/lib/db';
 import { memberships, organizations, users } from '@/lib/db/schema';
 import { hashPassword, verifyPassword } from '@/lib/auth/password';
+import { ensurePreviewData } from '@/lib/preview/data';
 import { createSession, destroySession, SESSION_COOKIE } from '@/lib/auth/session';
 import { getSessionUser } from '@/lib/auth/context';
 import { seedOrganizationDefaults } from '@/lib/seed/defaults';
@@ -39,6 +40,10 @@ async function setSessionCookie(userId: string, organizationId: string): Promise
 }
 
 export async function login(_prev: FormState, formData: FormData): Promise<FormState> {
+  // In UI preview the database starts empty, so the demo account has to exist
+  // before anyone can sign in. No-op in every other mode.
+  await ensurePreviewData();
+
   const parsed = credentialsSchema.safeParse({
     email: formData.get('email'),
     password: formData.get('password'),

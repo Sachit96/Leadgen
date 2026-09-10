@@ -21,6 +21,11 @@ export type Ctx = {
 };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
+  // Covers a preview session that outlived its in-memory database — a dev
+  // server restart wipes the data but leaves the cookie in the browser.
+  const { ensurePreviewData } = await import('@/lib/preview/data');
+  await ensurePreviewData();
+
   const store = await cookies();
   return resolveSession(store.get(SESSION_COOKIE)?.value);
 }

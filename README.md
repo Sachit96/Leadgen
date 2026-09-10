@@ -49,6 +49,24 @@ npm run dev        # http://localhost:3000
 > above — `git clone` refuses to write into a non-empty directory, and because
 > the commands are chained, nothing after it would run.
 
+### UI-only preview
+
+For frontend work with nothing installed and no `.env` at all:
+
+```bash
+UI_PREVIEW=true npm run dev
+```
+
+That boots an in-memory Postgres, applies the real migrations, and seeds it on
+the first request — about ten seconds, once. Sign in with the same demo
+credentials. Everything else is real: real schema, real queries, real login,
+real services, so a query that breaks still breaks in front of you. Nothing
+persists; restart and you get the seed back.
+
+Never set it on a deployed environment — it also supplies a default
+`SESSION_SECRET`, which is only safe because it cannot be reached without the
+flag.
+
 **Why there is no database to install.** `setup` points `DATABASE_URL` at
 `pglite://./data/onradar` — an embedded Postgres engine that writes to a local
 directory. It is the same engine the test suite runs the real migrations
