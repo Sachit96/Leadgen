@@ -427,6 +427,22 @@ describe('end-to-end scrape', () => {
     expect(records.every((r) => r.stage !== 'REVIEW')).toBe(true);
     expect(await h.db.select().from(leadPersonalization)).toHaveLength(0);
     expect((await listLeads(h.ctx, { filters: { view: 'REVIEW' } })).total).toBe(0);
+
+    // And they are not callable or campaign-ready either. The queue builds from
+    // READY, so readiness is the only place that can hold this line.
+    expect(scored.every((c) => c.callReadiness !== 'READY')).toBe(true);
+    expect((await listLeads(h.ctx, { filters: { view: 'CALL_READY' } })).total).toBe(0);
+    expect((await listLeads(h.ctx, { filters: { view: 'CAMPAIGN_READY' } })).total).toBe(0);
+
+    const { createCallQueue } = await import('@/lib/services/call-queue');
+    const queue = await createCallQueue(h.ctx, { name: 'Below the bar', filters: {} });
+    expect(queue.totalCount).toBe(0);
+
+    // Approving one by hand does not smuggle it past the gate either.
+    const { approveLeads } = await import('@/lib/services/leads');
+    await approveLeads(h.ctx, [scored[0]!.id]);
+    const afterApproval = (await h.db.select().from(contacts).where(eq(contacts.id, scored[0]!.id)))[0]!;
+    expect(afterApproval.callReadiness).not.toBe('READY');
   }, 120_000);
 
   it('completes a search that matched nothing without failing it', async () => {
@@ -763,6 +779,112 @@ describe('the synthetic web', () => {
     expect(viewports.some((v) => v === true)).toBe(true);
     expect(viewports.some((v) => v === false || v === null)).toBe(true);
   });
+});
+
+describe('contact enrichment', () => {
+  it('prefers a real mailbox on the business own domain', async () => {
+    const { pickBestEmail } = await import('@/lib/services/contact-enrichment');
+
+    // Their domain beats a free mailbox.
+    expect(pickBestEmail(['acme@gmail.com', 'info@acme.example'], 'acme.example')).toBe('info@acme.example');
+    // A named mailbox beats a generic one when neither is on their domain.
+    expect(pickBestEmail(['admin@x.example', 'info@x.example'], 'acme.example')).toBe('info@x.example');
+    // Platform noise is never a business contact.
+    expect(pickBestEmail(['bugs@sentry.io'], 'acme.example')).toBeNull();
+    expect(pickBestEmail([], 'acme.example')).toBeNull();
+  });
+
+  it('adds what the site published without overwriting what a human entered', async () => {
+    const h = await createHarness();
+    try {
+      const { enrichContact } = await import('@/lib/services/contact-enrichment');
+      const { createProspect } = await import('@/lib/services/contacts');
+      const { leadEnrichment, companies: companiesTable } = await import('@/lib/db/schema');
+
+      const prospect = await createProspect(h.ctx, {
+        phone: '9055550143',
+        email: 'typed-by-a-human@acme.example',
+        company: { name: 'Acme Roofing', city: 'Mississauga', industry: 'Roofing' },
+      });
+      await h.db
+        .update(companiesTable)
+        .set({ website: 'https://acme.example', websiteDomain: 'acme.example', ownerName: 'Dana Fitzgerald' })
+        .where(eq(companiesTable.id, prospect.companyId!));
+
+      await h.db.insert(leadEnrichment).values({
+        organizationId: h.ctx.organizationId,
+        companyId: prospect.companyId!,
+        kind: 'website',
+        ok: true,
+        input: {},
+        output: {
+          emails: ['info@acme.example'],
+          phones: ['+19055550143'],
+          pages: [{ url: 'https://acme.example/contact', role: 'contact' }],
+        },
+      });
+
+      const outcome = await enrichContact(h.ctx, prospect.id);
+      expect(outcome.result).toBe('enriched');
+
+      const after = (await h.db.select().from(contacts).where(eq(contacts.id, prospect.id)))[0]!;
+      // The typed address survives — scraping never overwrites a human.
+      expect(after.email).toBe('typed-by-a-human@acme.example');
+      // The provider's number is published on their own site: two sources agree.
+      expect(after.phoneConfidence).toBe(0.95);
+      expect(after.firstName).toBe('Dana');
+      expect(after.lastName).toBe('Fitzgerald');
+
+      const signals = await h.db.select().from(leadSignals);
+      const corroborated = signals.find((s) => s.key === 'phone_corroborated')!;
+      expect(corroborated.detected).toBe(true);
+      expect(corroborated.sourceUrl).toBe('https://acme.example/contact');
+    } finally {
+      await h.close();
+    }
+  }, 60_000);
+
+  it('records a number that differs from the listing rather than replacing it', async () => {
+    const h = await createHarness();
+    try {
+      const { enrichContact } = await import('@/lib/services/contact-enrichment');
+      const { createProspect } = await import('@/lib/services/contacts');
+      const { leadEnrichment, companies: companiesTable } = await import('@/lib/db/schema');
+
+      const prospect = await createProspect(h.ctx, {
+        phone: '9055550143',
+        company: { name: 'Beta Roofing', city: 'Mississauga', industry: 'Roofing' },
+      });
+      await h.db
+        .update(companiesTable)
+        .set({ website: 'https://beta.example', websiteDomain: 'beta.example' })
+        .where(eq(companiesTable.id, prospect.companyId!));
+
+      await h.db.insert(leadEnrichment).values({
+        organizationId: h.ctx.organizationId,
+        companyId: prospect.companyId!,
+        kind: 'website',
+        ok: true,
+        input: {},
+        output: {
+          emails: [],
+          phones: ['+16475550199'],
+          pages: [{ url: 'https://beta.example/', role: 'home' }],
+        },
+      });
+
+      await enrichContact(h.ctx, prospect.id);
+
+      const after = (await h.db.select().from(contacts).where(eq(contacts.id, prospect.id)))[0]!;
+      // The listed number stays. A different number on the site may be a
+      // tracking line or a second desk — a finding, not a correction.
+      expect(after.phone).toBe('+19055550143');
+      const signals = await h.db.select().from(leadSignals);
+      expect(signals.find((s) => s.key === 'alternate_phone_on_site')?.value).toBe('+16475550199');
+    } finally {
+      await h.close();
+    }
+  }, 60_000);
 });
 
 describe('provider configuration', () => {

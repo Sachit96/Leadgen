@@ -3,6 +3,9 @@ import { requireCtx } from '@/lib/auth/context';
 import { getLeadDetail } from '@/lib/services/leads';
 import { listCallHistory } from '@/lib/services/calls';
 import { telUri } from '@/lib/providers/call';
+import { listCallQueues } from '@/lib/services/call-queue';
+import { listCampaigns } from '@/lib/services/campaigns';
+import type { ScoreLine } from '@/lib/core/scoring';
 import { Badge, Card, KeyValue, Meter, PageHeader, SectionTitle } from '@/components/ui/primitives';
 import { buttonClass } from '@/components/ui/button-styles';
 import { LeadReviewActions } from './review-actions';
@@ -15,8 +18,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
 
   const detail = await getLeadDetail(ctx, id);
-  const { contact, company, discovery, signals, enrichment, personalization, duplicates } = detail;
-  const history = await listCallHistory(ctx, id, 10);
+  const { contact, company, discovery, signals, enrichment, personalization, duplicates, search, stageErrors } =
+    detail;
+  const [history, queues, campaigns] = await Promise.all([
+    listCallHistory(ctx, id, 10),
+    listCallQueues(ctx),
+    listCampaigns(ctx),
+  ]);
+
+  const breakdown = (contact.scoreBreakdown as ScoreLine[] | null) ?? [];
 
   const detected = signals.filter((s) => s.detected);
   const notDetected = signals.filter((s) => !s.detected);
@@ -42,11 +52,79 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
         <div className="space-y-5">
           <Card>
+            <SectionTitle>Where this came from</SectionTitle>
+            <dl className="divide-y divide-ink-800">
+              <KeyValue label="Source" value={discovery?.provider ?? contact.source ?? 'entered by hand'} />
+              <KeyValue
+                label="Run"
+                value={
+                  search ? (
+                    <Link
+                      href={`/lead-generation/leads?searchJobId=${search.id}`}
+                      className="text-accent-400 hover:underline"
+                    >
+                      {search.query} in {search.location}
+                    </Link>
+                  ) : (
+                    'not from a search run'
+                  )
+                }
+              />
+              <KeyValue
+                label="Listing"
+                value={
+                  discovery?.sourceUrl ? (
+                    <a
+                      href={discovery.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer noopener nofollow"
+                      className="text-accent-400 hover:underline"
+                    >
+                      open listing
+                    </a>
+                  ) : (
+                    '—'
+                  )
+                }
+              />
+              <KeyValue label="Provider id" value={discovery?.externalId ?? '—'} />
+              <KeyValue
+                label="Discovered"
+                value={discovery ? new Date(discovery.discoveredAt).toLocaleString('en-CA') : '—'}
+              />
+              <KeyValue
+                label="Crawled"
+                value={
+                  discovery?.crawlStatus === 'OK'
+                    ? `${discovery.pagesCrawled ?? 0} pages · ${
+                        discovery.crawledAt ? new Date(discovery.crawledAt).toLocaleString('en-CA') : ''
+                      }`
+                    : discovery?.crawlStatus === 'FAILED'
+                      ? `failed — ${discovery.crawlError ?? 'unknown error'}`
+                      : 'not attempted'
+                }
+              />
+              <KeyValue
+                label="Deduplication"
+                value={
+                  discovery?.duplicateReason
+                    ? `matched an existing business on ${discovery.duplicateReason.replace(/_/g, ' ')} (${discovery.duplicateScore?.toFixed(2)})`
+                    : 'no match — this is a new business'
+                }
+              />
+            </dl>
+          </Card>
+          <Card>
             <SectionTitle>Review</SectionTitle>
             <LeadReviewActions
               contactId={contact.id}
               companyId={company?.id ?? null}
               stage={discovery?.stage ?? null}
+              callReadiness={contact.callReadiness}
+              queues={queues.map((q) => ({ id: q.queue.id, name: q.queue.name }))}
+              campaigns={campaigns
+                .filter((c) => c.campaign.status === 'ACTIVE' || c.campaign.status === 'DRAFT')
+                .map((c) => ({ id: c.campaign.id, name: c.campaign.name }))}
               canWrite={ctx.role !== 'VIEWER'}
             />
           </Card>
@@ -85,7 +163,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           )}
 
           <Card>
-            <SectionTitle>Research</SectionTitle>
+            <SectionTitle
+              action={<Badge tone="warning">AI-derived</Badge>}
+            >
+              Research
+            </SectionTitle>
+            <p className="mb-2 text-xs text-ink-500">
+              Written by the research agent from the crawled pages below. Verified source data is in
+              the panels on the right; everything here is the model&apos;s reading of it.
+            </p>
             {company?.researchSummary ? (
               <>
                 <p className="text-sm text-ink-200">{company.researchSummary}</p>
@@ -126,15 +212,13 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             ) : (
               <>
                 <div className="space-y-1.5">
-                  {detected.map((signal) => (
+                  {[...detected].sort((a, b) => Number(a.inferred) - Number(b.inferred)).map((signal) => (
                     <div key={signal.id} className="flex items-start justify-between gap-3">
                       <span className="text-sm text-ink-200">
                         {signal.value ?? signal.key.replace(/_/g, ' ')}
-                        {signal.inferred ? (
-                          <Badge className="ml-1.5" tone="warning">
-                            inferred
-                          </Badge>
-                        ) : null}
+                        <Badge className="ml-1.5" tone={signal.inferred ? 'warning' : 'positive'}>
+                          {signal.inferred ? 'inferred' : 'observed'}
+                        </Badge>
                       </span>
                       <span className="max-w-[55%] text-right text-xs text-ink-500">
                         <span className="block truncate">{signal.evidence ?? 'observed'}</span>
@@ -278,6 +362,100 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
             </div>
           </Card>
 
+          <Card>
+            <SectionTitle>Score breakdown</SectionTitle>
+            {breakdown.length === 0 ? (
+              <p className="text-sm text-ink-400">Not scored yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {breakdown.map((line) => (
+                  <div key={line.key} className="flex items-start justify-between gap-2">
+                    <span className={line.awarded ? 'text-xs text-ink-200' : 'text-xs text-ink-600'}>
+                      {line.label}
+                      <span className="block text-[10px] text-ink-600">{line.reason}</span>
+                    </span>
+                    <span
+                      className={
+                        line.awarded
+                          ? 'shrink-0 text-xs font-medium tabular-nums text-positive-400'
+                          : 'shrink-0 text-xs tabular-nums text-ink-600'
+                      }
+                    >
+                      {line.awarded ? `+${line.points}` : '0'}
+                    </span>
+                  </div>
+                ))}
+                <div className="mt-2 flex justify-between border-t border-ink-800 pt-2 text-xs">
+                  <span className="text-ink-300">Total</span>
+                  <span className="font-medium tabular-nums text-ink-100">
+                    {contact.score ?? 0}
+                    {contact.scoringVersion ? (
+                      <span className="ml-1.5 font-normal text-ink-600">{contact.scoringVersion}</span>
+                    ) : null}
+                  </span>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <SectionTitle>Contact enrichment</SectionTitle>
+            <dl className="divide-y divide-ink-800">
+              <KeyValue
+                label="Email"
+                value={
+                  contact.email
+                    ? `${contact.email}${contactSignal(signals, 'public_email_found') ? ' · found on their site' : ''}`
+                    : 'none found'
+                }
+              />
+              <KeyValue
+                label="Phone"
+                value={
+                  contactSignal(signals, 'phone_corroborated')
+                    ? 'listed by the provider and published on their site'
+                    : contactSignal(signals, 'alternate_phone_on_site')
+                      ? `their site shows ${contactSignal(signals, 'alternate_phone_on_site')?.value}`
+                      : 'from the discovery provider only'
+                }
+              />
+              <KeyValue
+                label="Name"
+                value={
+                  [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
+                  (company?.ownerName ? `${company.ownerName} (on the company)` : 'unknown')
+                }
+              />
+            </dl>
+          </Card>
+
+          {stageErrors.length > 0 ? (
+            <Card>
+              <SectionTitle>Stage errors</SectionTitle>
+              <div className="space-y-2">
+                {stageErrors.map((stage) => (
+                  <div key={stage.id}>
+                    <p className="text-xs text-ink-200">
+                      {stage.type.replace(/_/g, ' ')}{' '}
+                      <Badge tone={stage.status === 'DEAD' ? 'danger' : 'warning'}>
+                        {stage.status.toLowerCase()}
+                      </Badge>
+                      <span className="ml-1.5 text-[10px] text-ink-600">
+                        {stage.attempts} attempt{stage.attempts === 1 ? '' : 's'}
+                      </span>
+                    </p>
+                    {stage.error ? (
+                      <p className="mt-0.5 text-[11px] text-danger-400">
+                        {stage.errorCode ? `${stage.errorCode}: ` : ''}
+                        {stage.error}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : null}
+
           {history.length > 0 ? (
             <Card>
               <SectionTitle>Calls</SectionTitle>
@@ -328,4 +506,14 @@ function describeEvidence(evidence: unknown): string {
     .filter(([, value]) => value !== null && value !== '')
     .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${String(value)}`);
   return entries.length > 0 ? entries.join(', ') : 'no evidence recorded';
+}
+
+
+/** A named signal, when it was detected. Used for the enrichment readout. */
+function contactSignal(
+  signals: Array<{ key: string; detected: boolean; value: string | null }>,
+  key: string,
+): { value: string | null } | null {
+  const signal = signals.find((s) => s.key === key && s.detected);
+  return signal ? { value: signal.value } : null;
 }

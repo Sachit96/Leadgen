@@ -7,7 +7,7 @@ import type { LeadSearchJob } from '@/lib/db/types';
 import { ActionButton } from '@/components/ui/action-form';
 import { Badge, Card, EmptyState, Meter, cn, type Tone } from '@/components/ui/primitives';
 import { buttonClass } from '@/components/ui/button-styles';
-import { cancelLeadSearchAction } from '@/app/actions/lead-generation';
+import { cancelLeadSearchAction, retryLeadSearchAction } from '@/app/actions/lead-generation';
 
 const STATUS_TONE: Record<string, Tone> = {
   DRAFT: 'neutral',
@@ -104,6 +104,16 @@ export function SearchJobList({
                     confirm="Stop this run? Businesses already discovered and crawled are kept."
                   >
                     Stop
+                  </ActionButton>
+                ) : null}
+                {done && canWrite && (job.status !== 'COMPLETED' || job.failedCount > 0) ? (
+                  <ActionButton
+                    action={() => retryLeadSearchAction(job.id)}
+                    successMessage="Retrying what did not finish"
+                    className={buttonClass('secondary', 'sm')}
+                    title="Re-runs only the stages that failed. Work that succeeded is not repeated."
+                  >
+                    Retry
                   </ActionButton>
                 ) : null}
                 <Link

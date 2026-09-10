@@ -1,6 +1,6 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
-import { leadDiscoveryRecords, leadSearchJobs, savedSearches } from '@/lib/db/schema';
+import { leadDiscoveryRecords, leadJobs, leadSearchJobs, savedSearches } from '@/lib/db/schema';
 import { invalid, notFound } from '@/lib/core/errors';
 import { assertCan } from '@/lib/auth/rbac';
 import type { Ctx } from '@/lib/auth/context';
@@ -90,6 +90,99 @@ export async function cancelSearchJob(ctx: Ctx, searchJobId: string): Promise<vo
     .where(
       and(eq(leadSearchJobs.id, searchJobId), eq(leadSearchJobs.organizationId, ctx.organizationId)),
     );
+}
+
+/**
+ * Restarts the parts of a run that did not finish.
+ *
+ * Idempotent by construction: it revives dead jobs and re-enqueues stages for
+ * records that never reached the CRM, and every enqueue carries the same
+ * idempotency key the original did, so a stage that already succeeded is not
+ * run twice and a record that was already promoted is not promoted again.
+ * Running it on a healthy run is a no-op.
+ */
+export async function retrySearchJob(ctx: Ctx, searchJobId: string): Promise<{ revived: number; requeued: number }> {
+  assertCan(ctx.role, 'prospect:import');
+  const job = await getSearchJob(ctx, searchJobId);
+
+  const db = getDb();
+  const { retryDeadLeadJobs, expediteLeadJobs, enqueueMany } = await import('./lead-jobs');
+
+  // 1. Jobs that exhausted their attempts get their attempts back, and jobs
+  //    still waiting out a backoff window are pulled forward to now — "retry"
+  //    means now, not "in up to fifteen minutes".
+  const revived = (await retryDeadLeadJobs(ctx, searchJobId)) + (await expediteLeadJobs(ctx, searchJobId));
+
+  // 2. Records that never made it into the CRM and are not duplicates. A
+  //    failed crawl is not one of these: that lead progressed.
+  const stranded = await db
+    .select({ id: leadDiscoveryRecords.id })
+    .from(leadDiscoveryRecords)
+    .where(
+      and(
+        eq(leadDiscoveryRecords.organizationId, ctx.organizationId),
+        eq(leadDiscoveryRecords.searchJobId, searchJobId),
+        isNull(leadDiscoveryRecords.companyId),
+        sql`${leadDiscoveryRecords.stage} not in ('DUPLICATE')`,
+      ),
+    );
+
+  const requeued = await enqueueMany(
+    ctx,
+    stranded.map((record) => ({
+      type: 'lead_normalization' as const,
+      // The original key: a record already normalized is not queued again.
+      idempotencyKey: `normalize:${record.id}`,
+      searchJobId,
+      discoveryRecordId: record.id,
+      priority: 2,
+    })),
+  );
+
+  // 3. A run that discovery itself never completed is started again from the
+  //    top; discovery is idempotent through the unique index on external id.
+  const existingDiscovery = await db
+    .select({ id: leadJobs.id })
+    .from(leadJobs)
+    .where(
+      and(
+        eq(leadJobs.searchJobId, searchJobId),
+        eq(leadJobs.type, 'lead_discovery'),
+        sql`${leadJobs.status} in ('PENDING','RUNNING')`,
+      ),
+    )
+    .limit(1);
+
+  let discoveryRequeued = false;
+  if (job.discoveredCount === 0 && existingDiscovery.length === 0 && job.status !== 'RUNNING') {
+    await enqueueLeadJob(ctx, {
+      type: 'lead_discovery',
+      idempotencyKey: `discovery:${searchJobId}:retry:${Date.now()}`,
+      searchJobId,
+      priority: 1,
+    });
+    discoveryRequeued = true;
+  }
+
+  // Only reopen the run if there is actually work to do. Setting it back to
+  // QUEUED with an empty job queue would strand it there: nothing would ever
+  // call completeSearchIfDone again, and the run would show as in progress
+  // forever.
+  const hasWork = revived > 0 || requeued > 0 || discoveryRequeued;
+  if (hasWork) {
+    await db
+      .update(leadSearchJobs)
+      .set({ status: 'QUEUED', error: null, completedAt: null })
+      .where(and(eq(leadSearchJobs.id, searchJobId), eq(leadSearchJobs.organizationId, ctx.organizationId)));
+  }
+
+  await recordActivity(ctx, {
+    type: 'discovery_started',
+    title: `Retried lead search "${job.query}" in ${job.location}`,
+    metadata: { searchJobId, revived, requeued },
+  });
+
+  return { revived, requeued };
 }
 
 export async function getSearchJob(ctx: Ctx, id: string): Promise<LeadSearchJob> {

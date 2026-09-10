@@ -19,6 +19,37 @@ import { createHash } from 'node:crypto';
  */
 const RESERVED_TLD = '.example';
 
+/**
+ * What the synthetic provider said about each business it invented.
+ *
+ * The fake world has to agree with itself: if discovery lists a number for a
+ * business, that business's website should publish the same number, or the
+ * corroboration logic has nothing real to corroborate and every synthetic lead
+ * looks like it has a mismatched tracking number.
+ *
+ * In-process and bounded — discovery and crawling happen in the same worker.
+ * A host that is not registered still gets a site, just with a derived number.
+ */
+const registry = new Map<string, { phone: string | null; businessName: string }>();
+
+export function registerSyntheticBusiness(
+  website: string,
+  facts: { phone: string | null; businessName: string },
+): void {
+  try {
+    const host = new URL(website).hostname.toLowerCase();
+    if (!host.endsWith(RESERVED_TLD)) return;
+    if (registry.size > 5_000) registry.clear();
+    registry.set(host, facts);
+  } catch {
+    // A website we cannot parse is one we will not be asked to serve.
+  }
+}
+
+export function clearSyntheticRegistry(): void {
+  registry.clear();
+}
+
 /** Deterministic per-host, so the same business always has the same site. */
 function seededRandom(seed: string): () => number {
   let state = parseInt(createHash('sha1').update(seed).digest('hex').slice(0, 8), 16) || 1;
@@ -33,6 +64,7 @@ type SiteProfile = {
   hasForm: boolean;
   hasEmailField: boolean;
   hasPhone: boolean;
+  hasEmail: boolean;
   hasCta: boolean;
   hasAds: boolean;
   hasAnalytics: boolean;
@@ -53,6 +85,7 @@ function profileFor(host: string): SiteProfile {
     hasForm: random() > 0.3,
     hasEmailField: random() > 0.4,
     hasPhone: random() > 0.15,
+    hasEmail: random() > 0.3,
     hasCta: random() > 0.35,
     hasAds: random() > 0.55,
     hasAnalytics: random() > 0.3,
@@ -94,7 +127,12 @@ function titleize(host: string): string {
 }
 
 function renderPage(host: string, path: string, profile: SiteProfile): string | null {
-  const name = titleize(host);
+  const known = registry.get(host);
+  const name = known?.businessName ?? titleize(host);
+  // The number the provider listed, so corroboration has something real to
+  // check. Falls back to a derived one for a host we never registered.
+  const phone = known?.phone ?? '+19055550100';
+  const email = `info@${host}`;
   const services = servicesFor(host);
   const areas = AREAS.slice(0, profile.areaCount);
 
@@ -124,7 +162,8 @@ function renderPage(host: string, path: string, profile: SiteProfile): string | 
   </nav>`;
 
   const contactBlock = [
-    profile.hasPhone ? `<p>Call <a href="tel:+19055550100">905-555-0100</a></p>` : '',
+    profile.hasPhone ? `<p>Call <a href="tel:${phone}">${phone}</a></p>` : '',
+    profile.hasEmail ? `<p>Email <a href="mailto:${email}">${email}</a></p>` : '',
     profile.hasForm
       ? `<form><input type="text" name="name">${profile.hasEmailField ? '<input type="email" name="email">' : ''}<button>Send</button></form>`
       : '',

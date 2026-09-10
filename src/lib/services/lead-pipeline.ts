@@ -535,9 +535,11 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
     },
   });
 
+  // Contact enrichment first: it reads the crawl we just stored, and research
+  // is better for having an owner's name and a corroborated number.
   await enqueueLeadJob(ctx, {
-    type: 'ai_research',
-    idempotencyKey: `research:${company.id}`,
+    type: job.contactId ? 'contact_enrichment' : 'ai_research',
+    idempotencyKey: `${job.contactId ? 'contact' : 'research'}:${company.id}`,
     searchJobId: job.searchJobId,
     discoveryRecordId: job.discoveryRecordId,
     companyId: company.id,
@@ -604,6 +606,28 @@ export async function runScoring(job: ClaimedLeadJob): Promise<StageResult> {
   return { result: 'ok', detail: `scored ${result.score} (${result.bucket})` };
 }
 
+/**
+ * The minimum score of the run that discovered this contact.
+ *
+ * Read through the discovery record rather than stored on the contact, so
+ * re-running the gate reflects the run as it was defined rather than a snapshot
+ * taken at promotion time.
+ */
+async function minScoreForContact(contactId: string): Promise<number | null> {
+  const rows = await getDb()
+    .select({ filters: leadSearchJobs.filters })
+    .from(leadDiscoveryRecords)
+    .innerJoin(leadSearchJobs, eq(leadSearchJobs.id, leadDiscoveryRecords.searchJobId))
+    .where(eq(leadDiscoveryRecords.contactId, contactId))
+    .limit(1);
+  return readMinScore(rows[0]?.filters);
+}
+
+function readMinScore(filters: unknown): number | null {
+  const minScore = (filters as { minScore?: number } | undefined)?.minScore;
+  return typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : null;
+}
+
 /** The minimum lead score the run was started with, if any. */
 async function searchMinScore(searchJobId: string): Promise<number | null> {
   const rows = await getDb()
@@ -611,8 +635,7 @@ async function searchMinScore(searchJobId: string): Promise<number | null> {
     .from(leadSearchJobs)
     .where(eq(leadSearchJobs.id, searchJobId))
     .limit(1);
-  const minScore = (rows[0]?.filters as { minScore?: number } | undefined)?.minScore;
-  return typeof minScore === 'number' && Number.isFinite(minScore) ? minScore : null;
+  return readMinScore(rows[0]?.filters);
 }
 
 /**
@@ -642,8 +665,16 @@ export async function refreshCallReadiness(ctx: Ctx, contactId: string): Promise
     contact.status === 'DO_NOT_CONTACT' ||
     (await isSuppressed(ctx, contact.phone));
 
+  // The run's minimum score is a hard gate on readiness, not just on whether we
+  // spend an AI call writing an opener. A lead below the bar the operator set
+  // must never turn up in a call queue — the queue builds from READY, so this
+  // is the only place that can hold the line.
+  const gate = await minScoreForContact(contactId);
+  const meetsGate = gate === null || (contact.score !== null && contact.score >= gate);
+
   const ready =
     !blocked &&
+    meetsGate &&
     Boolean(contact.phone) &&
     contact.phoneValidated &&
     Boolean(company?.name) &&

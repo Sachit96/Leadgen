@@ -8,7 +8,9 @@ import {
   duplicateMatches,
   leadDiscoveryRecords,
   leadEnrichment,
+  leadJobs,
   leadPersonalization,
+  leadSearchJobs,
   leadSignals,
 } from '@/lib/db/schema';
 import { invalid, notFound } from '@/lib/core/errors';
@@ -231,7 +233,7 @@ export async function getLeadDetail(ctx: Ctx, contactId: string) {
   if (!row) throw notFound('Lead');
 
   const companyId = row.company?.id;
-  const [signals, enrichment, personalization, duplicates, calls] = await Promise.all([
+  const [signals, enrichment, personalization, duplicates, calls, search, stageErrors] = await Promise.all([
     companyId ? db.select().from(leadSignals).where(eq(leadSignals.companyId, companyId)) : [],
     companyId
       ? db
@@ -256,6 +258,34 @@ export async function getLeadDetail(ctx: Ctx, contactId: string) {
       .where(eq(callAttempts.contactId, contactId))
       .orderBy(desc(callAttempts.startedAt))
       .limit(20),
+    // The run this lead came from, so the operator can get back to it.
+    row.discovery?.searchJobId
+      ? db
+          .select()
+          .from(leadSearchJobs)
+          .where(eq(leadSearchJobs.id, row.discovery.searchJobId))
+          .limit(1)
+      : Promise.resolve([]),
+    // Every stage that failed for this lead, with the error it failed on.
+    db
+      .select({
+        id: leadJobs.id,
+        type: leadJobs.type,
+        status: leadJobs.status,
+        attempts: leadJobs.attempts,
+        errorCode: leadJobs.errorCode,
+        error: leadJobs.error,
+        completedAt: leadJobs.completedAt,
+      })
+      .from(leadJobs)
+      .where(
+        and(
+          eq(leadJobs.contactId, contactId),
+          sql`${leadJobs.status} in ('FAILED','DEAD','SKIPPED')`,
+        ),
+      )
+      .orderBy(desc(leadJobs.createdAt))
+      .limit(20),
   ]);
 
   return {
@@ -267,6 +297,8 @@ export async function getLeadDetail(ctx: Ctx, contactId: string) {
     personalization: personalization[0] ?? null,
     duplicates,
     calls,
+    search: search[0] ?? null,
+    stageErrors,
   };
 }
 

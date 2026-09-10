@@ -24,6 +24,7 @@ import {
 } from '@/lib/services/lead-pipeline';
 import { bumpSearchCounter } from '@/lib/services/lead-search';
 import { buildQueueFromFilters } from '@/lib/services/call-queue';
+import { enrichContact } from '@/lib/services/contact-enrichment';
 
 export type LeadWorkerResult = {
   claimed: number;
@@ -110,9 +111,7 @@ async function runStage(job: ClaimedLeadJob): Promise<StageResult> {
       return runPersonalization(job);
 
     case 'contact_enrichment':
-      // Contact enrichment is folded into the website crawl, which is where
-      // owner names and addresses actually come from.
-      return { result: 'skipped', reason: 'handled by website enrichment' };
+      return runContactEnrichment(job);
 
     case 'call_queue_generation':
       return runQueueGeneration(job);
@@ -123,6 +122,36 @@ async function runStage(job: ClaimedLeadJob): Promise<StageResult> {
     default:
       return { result: 'skipped', reason: `no handler for ${job.type}` };
   }
+}
+
+/**
+ * Promotes what the crawl found onto the prospect: a public email address, a
+ * corroborated phone number, an owner's name. It only ever adds — anything a
+ * human entered stays as they entered it.
+ */
+async function runContactEnrichment(job: ClaimedLeadJob): Promise<StageResult> {
+  if (!job.contactId) return { result: 'skipped', reason: 'no contact to enrich' };
+  const ctx = systemCtx(job.organizationId);
+
+  const outcome = await enrichContact(ctx, job.contactId);
+
+  // Research runs either way: finding nothing new on the contact page is not a
+  // reason to stop the lead, and a skipped stage must still hand off or the
+  // pipeline stalls here.
+  if (job.companyId) {
+    await enqueueLeadJob(ctx, {
+      type: 'ai_research',
+      idempotencyKey: `research:${job.companyId}`,
+      searchJobId: job.searchJobId,
+      discoveryRecordId: job.discoveryRecordId,
+      companyId: job.companyId,
+      contactId: job.contactId,
+      priority: 5,
+    });
+  }
+
+  if (outcome.result === 'skipped') return { result: 'skipped', reason: outcome.reason };
+  return { result: 'ok', detail: `added ${outcome.added.join(', ')}` };
 }
 
 async function runResearch(job: ClaimedLeadJob): Promise<StageResult> {

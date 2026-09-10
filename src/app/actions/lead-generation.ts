@@ -6,6 +6,7 @@ import {
   createSearchJob,
   deleteSavedSearch,
   saveSearch,
+  retrySearchJob,
   startSearchJob,
 } from '@/lib/services/lead-search';
 import { approveLeads, rejectLeads, requeueStage } from '@/lib/services/leads';
@@ -69,6 +70,24 @@ export async function cancelLeadSearchAction(searchJobId: string) {
       const ctx = await requireCtx('prospect:import');
       await cancelSearchJob(ctx, searchJobId);
       return { id: searchJobId };
+    },
+    LEAD_PATHS,
+  );
+}
+
+/**
+ * Restarts what a run did not finish.
+ *
+ * Safe to press twice: stages keep their original idempotency keys, so work
+ * that already succeeded is not repeated and records already in the CRM are not
+ * promoted again.
+ */
+export async function retryLeadSearchAction(searchJobId: string) {
+  return action(
+    'leadgen.retry',
+    async () => {
+      const ctx = await requireCtx('prospect:import');
+      return retrySearchJob(ctx, searchJobId);
     },
     LEAD_PATHS,
   );

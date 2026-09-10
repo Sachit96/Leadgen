@@ -1,4 +1,4 @@
-import { and, eq, lt, sql } from 'drizzle-orm';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { leadJobs } from '@/lib/db/schema';
 import type { Ctx } from '@/lib/auth/context';
@@ -202,6 +202,29 @@ export async function leadJobStats(ctx: Ctx, searchJobId?: string) {
     .from(leadJobs)
     .where(and(...clauses))
     .groupBy(leadJobs.type, leadJobs.status);
+}
+
+/**
+ * Pulls scheduled-but-waiting jobs forward to now.
+ *
+ * A stage that failed retryably is PENDING with a future `scheduledAt` while it
+ * backs off. "Retry now" means exactly that — otherwise a run sits looking idle
+ * with work invisibly queued behind a backoff window.
+ */
+export async function expediteLeadJobs(ctx: Ctx, searchJobId?: string): Promise<number> {
+  const clauses = [
+    eq(leadJobs.organizationId, ctx.organizationId),
+    eq(leadJobs.status, 'PENDING'),
+    gt(leadJobs.scheduledAt, new Date()),
+  ];
+  if (searchJobId) clauses.push(eq(leadJobs.searchJobId, searchJobId));
+
+  const rows = await getDb()
+    .update(leadJobs)
+    .set({ scheduledAt: new Date() })
+    .where(and(...clauses))
+    .returning({ id: leadJobs.id });
+  return rows.length;
 }
 
 export async function retryDeadLeadJobs(ctx: Ctx, searchJobId?: string): Promise<number> {

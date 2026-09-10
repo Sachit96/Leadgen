@@ -124,7 +124,17 @@ export class MockDiscoveryProvider implements LeadDiscoveryProvider {
         raw: { synthetic: true, seed: `${trade}|${city}|${i}` },
       };
 
-      if (passesFilters(business, request.filters)) businesses.push(business);
+      if (!passesFilters(business, request.filters)) continue;
+      // Keep the fake world consistent: the site we will serve for this
+      // business should publish the number we just listed for it.
+      if (business.website) {
+        const { registerSyntheticBusiness } = await import('./mock-web');
+        registerSyntheticBusiness(business.website, {
+          phone: business.phone,
+          businessName: business.businessName,
+        });
+      }
+      businesses.push(business);
     }
 
     return { businesses, requestsUsed: 1, truncated: businesses.length >= target };
