@@ -294,3 +294,73 @@ and the way out, and the lead-generation page reports it instead of running.
 | Writing the signal tests | `BOOKING_HOSTS` matched `book.` anywhere in a URL, and `facebook.com` contains it — so any business with a Facebook link was recorded as having online booking, inflating its website quality score and suppressing `no_online_booking`. |
 | Loading a lead in a browser | Service areas were read out of the navigation menu: nav link text runs together into "… Service Areas … Privacy", and "Privacy" was stored as a town the business serves. |
 | Browser console | `/prospects` discarded and rebuilt its React tree on every load — a relative timestamp rendered server-side and rehydrated client-side across a minute boundary. |
+
+---
+
+## 10. Closing the vertical slice
+
+### 10.1 The dialer must not take the page with it
+
+Pressing dial set `window.location.href = 'tel:…'`. Where a protocol handler is
+registered that hands off to the OS and the page survives. Where one is *not* —
+a desktop browser with no softphone — the navigation never resolves, the
+document is frozen, and every `fetch` from it is cancelled.
+
+The consequence was specific and bad: an operator could press dial and then be
+unable to record what happened, which is the one thing they must do next. An
+`<a href="tel:">` that navigates has the same problem, and so does an iframe in
+a headless browser.
+
+The number is now a real anchor (so it is copyable and dialable from the context
+menu) whose default action is prevented, and the handoff goes through
+`openDialer`, which navigates a detached iframe instead of the document.
+
+### 10.2 One call is one row, even if the page does not come back
+
+That work surfaced a second bug. The attempt id lived only in client state, so
+an operator who left the app to dial and came back to a fresh page marked the
+outcome without it — and `recordDisposition` opened a *second* attempt, leaving
+the first as `INITIATED` forever. Two rows for one call quietly corrupts the
+call history and every metric drawn from it.
+
+`recordDisposition` now adopts the open, un-dispositioned attempt for that
+prospect when no id is supplied. Verified for the full journey: dial, lose the
+page, come back, mark the outcome — one row.
+
+### 10.3 Contact enrichment became a real stage
+
+It returned "handled by website enrichment" and did nothing. It now promotes the
+public email the crawl found, raises phone confidence when the number the
+provider listed also appears on the business's own site, and splits a researched
+owner name onto the prospect. It only ever adds — an address a human typed is
+never overwritten by something scraped — and a number on the site that differs
+from the listing is recorded as a finding rather than a correction, because it
+is usually a tracking line.
+
+### 10.4 The minimum score became a real gate
+
+It skipped personalization, which kept low-scoring leads out of campaign-ready.
+But `callReadiness` never consulted it, so a lead below the operator's bar could
+still be built into a call queue. It is now checked inside
+`refreshCallReadiness`, read through the discovery record so it reflects the run
+as defined rather than a snapshot taken at promotion.
+
+### 10.5 Retry, and two bugs it exposed
+
+`retrySearchJob` revives dead jobs, pulls jobs still waiting out a backoff
+window forward to now, re-enqueues records that never reached the CRM, and
+restarts discovery only when no discovery job is already pending. Every enqueue
+keeps its original idempotency key, so pressing it twice is a no-op.
+
+Writing it surfaced two bugs: setting a run back to `QUEUED` with an empty job
+queue stranded it there forever, because nothing would ever call
+`completeSearchIfDone` again; and a retryable discovery failure leaves its job
+`PENDING` behind a backoff, so a retry that only revived `DEAD` jobs missed the
+one job that mattered.
+
+### 10.6 More extraction bugs
+
+| Found by | Bug |
+|---|---|
+| Reading a lead in the browser | The trigger phrase was being read as a place name — "Areas We Serve Proudly serving …" yielded a service area called "Areas We". The `<head>` also bled the page's own title into its prose. |
+| Writing the test for that | Pattern 1 was case-sensitive, so "Serving Toronto and Hamilton" at the start of a sentence — extremely common — was never matched at all. Patterns 2 and 3 carried the `i` flag, which made `[A-Z]` match lowercase and turned every following word into a candidate town. |

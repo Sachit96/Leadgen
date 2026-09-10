@@ -266,6 +266,51 @@ describe('the full vertical slice', () => {
     expect(outcome.averageScore).toBeGreaterThan(0);
   }, 180_000);
 
+  it('records one call, not two, when the page is lost while dialling', async () => {
+    const search = await createSearchJob(h.ctx, {
+      query: 'roofing',
+      location: 'Mississauga, ON',
+      requestedCount: 6,
+      filters: { requirePhone: true },
+    });
+    await startSearchJob(h.ctx, search.id);
+    await drain();
+
+    const ready = await listLeads(h.ctx, { filters: { view: 'CALL_READY' } });
+    const target = ready.rows[0]!;
+    const queue = await createCallQueue(h.ctx, { name: 'Handoff', filters: {} });
+    const position = (await currentQueuePosition(h.ctx, queue.id))!;
+
+    // Dial. The operating system takes over and the tab may not come back —
+    // on a phone the operator leaves the app entirely.
+    const attempt = await initiateCall(h.ctx, {
+      contactId: position.contactId,
+      queueId: queue.id,
+      queueItemId: position.itemId,
+    });
+
+    // They return to a fresh page, which no longer knows the attempt id.
+    await recordDisposition(h.ctx, {
+      contactId: position.contactId,
+      outcome: 'NO_ANSWER',
+      queueItemId: position.itemId,
+    });
+
+    const attempts = await h.db
+      .select()
+      .from(callAttempts)
+      .where(eq(callAttempts.contactId, position.contactId));
+
+    // One call happened, so there is one row — the open attempt was adopted
+    // rather than a second one opened and the first left INITIATED forever.
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]!.id).toBe(attempt.attemptId);
+    expect(attempts[0]!.outcome).toBe('NO_ANSWER');
+    expect(attempts[0]!.dispositionedAt).toBeTruthy();
+    expect(attempts[0]!.queueId).toBe(queue.id);
+    void target;
+  }, 120_000);
+
   it('enrols an approved lead in a campaign without sending anything', async () => {
     const search = await createSearchJob(h.ctx, {
       query: 'roofing',

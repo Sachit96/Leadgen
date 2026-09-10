@@ -23,6 +23,9 @@ import type { CrawlPage } from './crawler';
  */
 export function stripChrome(html: string): string {
   return html
+    // The <head> carries the title and meta tags, which repeat the page's own
+    // name back into the body text ("… | areas we serve Areas We Serve …").
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, ' ')
     .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, ' ')
     .replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, ' ')
     .replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, ' ')
@@ -167,10 +170,34 @@ export function extractHeadings(html: string): string[] {
 const PLACE = String.raw`[A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?`;
 const PLACE_LIST = String.raw`(${PLACE}(?:\s*(?:,|,?\s*and)\s*${PLACE}){0,14})`;
 
+/**
+ * Words that are never a town in this position.
+ *
+ * The patterns below trigger on a heading and then read the words after it, so
+ * the heading's own words and the site's structural vocabulary can be captured
+ * as place names — "Areas We", "Proudly", "Privacy". A place name is an open
+ * set and cannot be validated, but this closed set of page furniture can be
+ * excluded.
+ */
+const NOT_A_PLACE = new Set([
+  'area', 'areas', 'service', 'services', 'serve', 'serving', 'serviced', 'coverage',
+  'location', 'locations', 'we', 'our', 'us', 'proudly', 'home', 'contact', 'about',
+  'privacy', 'terms', 'sitemap', 'blog', 'news', 'menu', 'call', 'email', 'the', 'and',
+  'all', 'more', 'other', 'surrounding', 'greater', 'free', 'quote', 'estimate', 'book',
+]);
+
+/**
+ * The trigger words are case-tolerant; the place list is not.
+ *
+ * These cannot carry the `i` flag: it would apply to the whole pattern, and
+ * `[A-Z]` matching lowercase turns every word after "serving" into a candidate
+ * town. So the trigger spells out both cases and the list stays capitalized —
+ * which is what distinguishes "serving Guelph" from "serving roofs".
+ */
 const SERVICE_AREA_PATTERNS = [
-  new RegExp(String.raw`(?:proudly\s+)?serving\s+${PLACE_LIST}`, 'g'),
-  new RegExp(String.raw`service\s+areas?\s*:?\s*${PLACE_LIST}`, 'gi'),
-  new RegExp(String.raw`areas?\s+we\s+serve\s*:?\s*${PLACE_LIST}`, 'gi'),
+  new RegExp(String.raw`(?:[Pp]roudly\s+)?[Ss]erv(?:ing|es)\s+${PLACE_LIST}`, 'g'),
+  new RegExp(String.raw`[Ss]ervice\s+[Aa]reas?\s*:?\s*${PLACE_LIST}`, 'g'),
+  new RegExp(String.raw`[Aa]reas?\s+[Ww]e\s+[Ss]erve\s*:?\s*${PLACE_LIST}`, 'g'),
 ];
 
 /**
@@ -195,7 +222,11 @@ export function extractServiceAreas(text: string): string[] {
           words.push(word);
         }
         const area = words.join(' ').replace(/[.;:]$/, '');
-        if (area.length >= 3 && area.length <= 40 && words.length > 0 && words.length <= 2) areas.add(area);
+        if (area.length < 3 || area.length > 40 || words.length === 0 || words.length > 2) continue;
+        // "Greater Toronto" is a place; "Areas We" is a heading that happened to
+        // sit where a place name goes.
+        if (words.every((word) => NOT_A_PLACE.has(word.toLowerCase()))) continue;
+        areas.add(area);
       }
     }
   }

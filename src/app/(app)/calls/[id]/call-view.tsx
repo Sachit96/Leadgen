@@ -10,6 +10,7 @@ import { ScoreBadge } from '@/components/ui/status';
 import { Button } from '@/components/ui/buttons';
 import { buttonClass } from '@/components/ui/button-styles';
 import { useToast } from '@/components/ui/toast';
+import { openDialer } from '@/lib/client/dial';
 import { initiateCallAction, recordDispositionAction, skipQueueItemAction } from '@/app/actions/calls';
 
 export type CallCard = {
@@ -87,6 +88,14 @@ export function CallView({
 
   const location = [card.city, card.province].filter(Boolean).join(', ');
 
+  /**
+   * Records that dial was pressed, then hands the number to the OS.
+   *
+   * The handoff goes through `openDialer`, which uses a detached iframe rather
+   * than navigating this document — see that function for why. The operator has
+   * to be able to mark an outcome immediately after dialling, and a page stuck
+   * mid-navigation cannot submit anything.
+   */
   async function startCall() {
     if (pending) return;
     setPending(true);
@@ -97,9 +106,7 @@ export function CallView({
         return;
       }
       setAttemptId(result.data.attemptId);
-      // The browser hands the number to the OS. Whether a call actually
-      // happens after this point is not something the app can observe.
-      if (result.data.uri) window.location.href = result.data.uri;
+      if (result.data.uri) openDialer(result.data.uri);
     } finally {
       setPending(false);
     }
@@ -200,11 +207,17 @@ export function CallView({
 
         <div className="mt-6">
           {card.dialUri && canCall ? (
-            <button
-              type="button"
-              onClick={startCall}
-              disabled={pending}
-              className="inline-flex items-center gap-3 rounded-xl bg-accent-600 px-8 py-5 text-2xl font-semibold tabular-nums tracking-tight text-white transition-colors hover:bg-accent-500 disabled:opacity-60 sm:text-3xl"
+            <a
+              href={card.dialUri}
+              onClick={(event) => {
+                // We dial through openDialer; letting the anchor navigate would
+                // strand the page. The href stays so the number is a real link:
+                // copyable, and dialable from the context menu.
+                event.preventDefault();
+                void startCall();
+              }}
+              aria-disabled={pending}
+              className="inline-flex items-center gap-3 rounded-xl bg-accent-600 px-8 py-5 text-2xl font-semibold tabular-nums tracking-tight text-white transition-colors hover:bg-accent-500 sm:text-3xl"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-7">
                 <path
@@ -213,7 +226,7 @@ export function CallView({
                 />
               </svg>
               {card.phone}
-            </button>
+            </a>
           ) : (
             <div className="inline-flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-800 px-8 py-5 text-2xl font-semibold tabular-nums tracking-tight text-ink-500">
               {card.phone}

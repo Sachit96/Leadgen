@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { callAttempts, callQueueItems, callQueues, companies, contacts } from '@/lib/db/schema';
 import { invalid, notFound } from '@/lib/core/errors';
@@ -154,6 +154,29 @@ export async function recordDisposition(ctx: Ctx, input: DispositionInput): Prom
 
   // Attach to the open attempt, or create one for a call placed outside a queue.
   let attemptId = input.attemptId ?? null;
+
+  // Pressing dial hands the browser to the operating system, and the page may
+  // not survive that — on a phone the operator leaves the app entirely. When
+  // they come back and mark the outcome, the client no longer knows the attempt
+  // id, so adopt the open attempt for this prospect rather than opening a
+  // second one and leaving the first dangling as INITIATED forever.
+  if (!attemptId) {
+    const open = await db
+      .select({ id: callAttempts.id })
+      .from(callAttempts)
+      .where(
+        and(
+          eq(callAttempts.contactId, contact.id),
+          eq(callAttempts.organizationId, ctx.organizationId),
+          eq(callAttempts.outcome, 'INITIATED'),
+          isNull(callAttempts.dispositionedAt),
+        ),
+      )
+      .orderBy(desc(callAttempts.startedAt))
+      .limit(1);
+    attemptId = open[0]?.id ?? null;
+  }
+
   if (!attemptId) {
     const [created] = await db
       .insert(callAttempts)

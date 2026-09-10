@@ -166,6 +166,34 @@ describe('service area extraction', () => {
     expect(site.serviceAreas).not.toContain('Privacy');
     expect(site.serviceAreas).not.toContain('Sitemap');
   });
+
+  it('does not read the heading it triggered on as a place name', async () => {
+    const { extractSite } = await import('@/lib/enrichment/extract');
+    const { pageFromHtml } = await import('@/lib/enrichment/crawler');
+
+    // The trigger phrase and the site's own furniture sit exactly where a town
+    // name goes, and used to be captured as one.
+    expect(extractServiceAreas('Areas We Serve Proudly serving Mississauga and Oakville.')).toEqual([
+      'Mississauga',
+      'Oakville',
+    ]);
+    expect(extractServiceAreas('Service Areas Home Contact')).toEqual([]);
+
+    // A two-word place still survives.
+    expect(extractServiceAreas('Serving Greater Toronto and Niagara Falls.')).toEqual(
+      expect.arrayContaining(['Greater Toronto', 'Niagara Falls']),
+    );
+
+    // The <head> no longer bleeds the page's own name into its prose.
+    const site = extractSite([
+      pageFromHtml(
+        'https://acme.example/areas-we-serve',
+        '<html><head><title>Acme | areas we serve</title></head><body>' +
+          '<h2>Areas We Serve</h2><p>Proudly serving Guelph and Cambridge.</p></body></html>',
+      ),
+    ]);
+    expect(site.serviceAreas).toEqual(['Guelph', 'Cambridge']);
+  });
 });
 
 describe('booking link detection', () => {

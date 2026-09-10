@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { buttonClass } from './ui/button-styles';
 import { useToast } from './ui/toast';
+import { openDialer } from '@/lib/client/dial';
 import { initiateCallAction } from '@/app/actions/calls';
 
 /**
@@ -41,11 +42,15 @@ export function CallLink({
   }
 
   return (
-    <button
-      type="button"
-      disabled={disabled || pending}
+    <a
+      href={dialUri}
+      aria-disabled={disabled || pending}
       className={buttonClass(variant, 'sm')}
-      onClick={async () => {
+      onClick={async (event) => {
+        // Always prevented: dialling goes through openDialer so this page is
+        // never navigated. The href stays so the number remains a real link.
+        event.preventDefault();
+        if (disabled || pending) return;
         setPending(true);
         try {
           const result = await initiateCallAction(contactId);
@@ -54,13 +59,13 @@ export function CallLink({
             return;
           }
           router.refresh();
-          if (result.data.uri) window.location.href = result.data.uri;
+          if (result.data.uri) openDialer(result.data.uri);
         } finally {
           setPending(false);
         }
       }}
     >
       {pending ? '…' : (label ?? `Call ${phone}`)}
-    </button>
+    </a>
   );
 }
