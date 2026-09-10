@@ -15,16 +15,10 @@ const schema = z.object({
    * A Postgres connection string, or `pglite://<path>` to use the embedded
    * engine (no server to install — see docs/DEPLOYMENT.md).
    */
-  DATABASE_URL: z
-    .string()
-    .optional()
-    .default('postgresql://postgres:postgres@localhost:5432/dummy'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_SSL: z.enum(['true', 'false']).default('false'),
 
-  SESSION_SECRET: z
-    .string()
-    .optional()
-    .default('dummy-secret-key-that-is-at-least-32-characters-long'),
+  SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
   NEXT_PUBLIC_APP_URL: z.string().url().default('http://localhost:3000'),
 
   // --- SMS -----------------------------------------------------------------
