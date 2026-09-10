@@ -14,6 +14,7 @@ import { passesFilters } from '@/lib/lead-generation/providers/types';
 import { MockDiscoveryProvider } from '@/lib/lead-generation/providers/mock';
 import { htmlToText, extractSocialUrls, extractEmails, extractPhones, extractSite } from '@/lib/enrichment/extract';
 import { detectSignals, scoreWebsiteQuality, hasWeakConversionInfrastructure, hasAdvertisingEvidence } from '@/lib/enrichment/signals';
+import { pageFromHtml } from '@/lib/enrichment/crawler';
 
 describe('website normalization', () => {
   it('strips tracking parameters, www and trailing slashes', () => {
@@ -188,7 +189,7 @@ describe('HTML extraction', () => {
   });
 
   it('detects signals with the evidence that produced them', () => {
-    const pages = [{ path: '/', url: 'https://summit.example/', status: 200, html, bytes: html.length }];
+    const pages = [pageFromHtml('https://summit.example/', html)];
     const site = extractSite(pages);
     const { signals, quality } = detectSignals(pages, site, 'https://summit.example');
 
@@ -227,7 +228,7 @@ describe('HTML extraction', () => {
     expect(hasWeakConversionInfrastructure(bare, [])).toBe(true);
     expect(
       hasWeakConversionInfrastructure(bare, [
-        { key: 'field_service_crm', category: 'crm', detected: true, confidence: 1, evidence: 'jobber.com', source: 'website', inferred: false },
+        { key: 'field_service_crm', category: 'crm', detected: true, confidence: 1, evidence: 'jobber.com', sourceUrl: 'https://example.test/', source: 'website', inferred: false },
       ]),
     ).toBe(false);
   });

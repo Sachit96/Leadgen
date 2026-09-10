@@ -20,6 +20,8 @@ export type Signal = {
   /** What was actually found. Null when the signal was not detected. */
   evidence: string | null;
   source: string;
+  /** The page the evidence came from, so a claim can be checked. */
+  sourceUrl: string | null;
   /** True when this is a judgement rather than a direct observation. */
   inferred: boolean;
 };
@@ -103,13 +105,22 @@ const TECH_MATCHERS: Matcher[] = [
   },
 ];
 
-function findEvidence(html: string, patterns: RegExp[]): string | null {
-  for (const pattern of patterns) {
-    const match = pattern.exec(html);
-    if (match) {
+type Evidence = { text: string; url: string | null };
+
+/** Finds the first match across the crawled pages, and says which page it was on. */
+function findEvidence(pages: CrawlPage[], patterns: RegExp[]): Evidence | null {
+  for (const page of pages) {
+    for (const pattern of patterns) {
+      const match = pattern.exec(page.html);
+      if (!match) continue;
       // Keep a short window around the hit, so the operator sees context.
       const start = Math.max(0, match.index - 20);
-      return html.slice(start, match.index + match[0].length + 40).replace(/\s+/g, ' ').trim().slice(0, 160);
+      const text = page.html
+        .slice(start, match.index + match[0].length + 40)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
+      return { text, url: page.url };
     }
   }
   return null;
@@ -148,14 +159,15 @@ export function detectSignals(
   const signals: Signal[] = [];
 
   for (const matcher of TECH_MATCHERS) {
-    const evidence = findEvidence(html, matcher.patterns);
+    const evidence = findEvidence(pages, matcher.patterns);
     signals.push({
       key: matcher.key,
       category: matcher.category,
       detected: Boolean(evidence),
       value: evidence ? (matcher.label ?? matcher.key) : null,
       confidence: evidence ? (matcher.confidence ?? 0.95) : 0.9,
-      evidence,
+      evidence: evidence?.text ?? null,
+      sourceUrl: evidence?.url ?? null,
       source: 'website',
       inferred: false,
     });
@@ -189,7 +201,8 @@ export function detectSignals(
       category: 'quality',
       detected: value,
       confidence: 1,
-      evidence: value ? 'observed in fetched markup' : null,
+      evidence: value ? (qualityEvidence[key as keyof QualityFlags] ?? 'observed in fetched markup') : null,
+      sourceUrl: value ? (homepage?.url ?? pages[0]?.url ?? null) : null,
       source: 'website',
       inferred: false,
     });
@@ -203,10 +216,13 @@ export function detectSignals(
       value: url,
       confidence: 1,
       evidence: url,
+      sourceUrl: homepage?.url ?? pages[0]?.url ?? null,
       source: 'website',
       inferred: false,
     });
   }
+
+  signals.push(...opportunitySignals(pages, site, quality, signals));
 
   return { signals, quality, qualityScore: scoreWebsiteQuality(quality) };
 }
@@ -249,3 +265,204 @@ export function hasWeakConversionInfrastructure(quality: QualityFlags, signals: 
 export function hasAdvertisingEvidence(signals: Signal[]): boolean {
   return signals.some((s) => s.category === 'advertising' && s.detected);
 }
+
+/** Human-readable evidence for each quality flag, so a bare `true` is never the answer. */
+const qualityEvidence: Partial<Record<keyof QualityFlags, string>> = {
+  has_ssl: 'site served over https',
+  has_mobile_viewport: '<meta name="viewport"> present',
+  has_contact_form: '<form> element found',
+  has_lead_form: 'form with an email input found',
+  has_clear_cta: 'call-to-action wording found in page text',
+  has_phone_visible: 'tel: link or phone number in page text',
+  has_service_pages: 'a services page was crawled, or services named in the text',
+  has_booking_flow: 'booking link or scheduling tag found',
+  website_load_success: 'homepage fetched successfully',
+};
+
+/**
+ * The signals a rep actually sells against.
+ *
+ * These are the qualification layer: not "what technology is on this site" but
+ * "why is this business worth a call". Each one is a judgement drawn from
+ * observations, so each is marked `inferred` and carries both the reasoning and
+ * the page it was drawn from — a claim on the call screen must be checkable.
+ *
+ * Absence is never dressed up as a finding: a signal we could not establish is
+ * `detected: false` with null evidence, which downstream means "no evidence",
+ * not "the business lacks it".
+ */
+export function opportunitySignals(
+  pages: CrawlPage[],
+  site: ExtractedSite,
+  quality: QualityFlags,
+  technical: Signal[],
+): Signal[] {
+  const homeUrl = pages.find((p) => p.path === '/')?.url ?? pages[0]?.url ?? null;
+  const detected = (key: string) => technical.find((s) => s.key === key)?.detected === true;
+  const out: Signal[] = [];
+
+  const add = (
+    key: string,
+    category: Signal['category'],
+    hit: boolean,
+    evidence: string | null,
+    sourceUrl: string | null,
+    confidence = 0.7,
+    value?: string,
+  ) => {
+    out.push({
+      key,
+      category,
+      detected: hit,
+      value: hit ? (value ?? null) : null,
+      confidence,
+      evidence: hit ? evidence : null,
+      sourceUrl: hit ? sourceUrl : null,
+      source: 'derived',
+      inferred: true,
+    });
+  };
+
+  // --- the website is holding them back -----------------------------------
+  const weakSite = quality.website_load_success && !quality.has_mobile_viewport;
+  add(
+    'outdated_website',
+    'quality',
+    weakSite,
+    'no mobile viewport declared, so the site predates responsive design or was never adapted for phones',
+    homeUrl,
+    0.6,
+    'no mobile viewport',
+  );
+
+  add(
+    'missing_cta',
+    'conversion',
+    quality.website_load_success && !quality.has_clear_cta,
+    'no quote, estimate, booking or "call now" wording found anywhere in the crawled pages',
+    homeUrl,
+    0.65,
+    'no clear call to action',
+  );
+
+  add(
+    'no_lead_form',
+    'conversion',
+    quality.website_load_success && !quality.has_lead_form,
+    quality.has_contact_form
+      ? 'a form exists but has no email field, so enquiries may not be capturable'
+      : 'no form element on any crawled page',
+    homeUrl,
+    0.7,
+    'no lead capture form',
+  );
+
+  add(
+    'no_online_booking',
+    'booking',
+    quality.website_load_success && !quality.has_booking_flow,
+    'no booking or scheduling link found on any crawled page',
+    homeUrl,
+    0.7,
+    'no online booking or quote flow',
+  );
+
+  const contactPage = pages.find((p) => p.role === 'contact');
+  add(
+    'weak_contact_experience',
+    'conversion',
+    quality.website_load_success && !quality.has_phone_visible && !quality.has_contact_form,
+    contactPage
+      ? 'a contact page was crawled but carries no visible phone number and no form'
+      : 'no contact page found, and no visible phone number or form on the pages crawled',
+    contactPage?.url ?? homeUrl,
+    0.75,
+    'hard to contact',
+  );
+
+  add(
+    'no_follow_up_mechanism',
+    'crm',
+    quality.website_load_success && !detected('field_service_crm') && !detected('marketing_crm') && !quality.has_chat_widget,
+    'no CRM, marketing automation or chat tag found, so enquiries likely land in a personal inbox',
+    homeUrl,
+    0.55,
+    'no visible follow-up system',
+  );
+
+  // --- they are worth calling ---------------------------------------------
+  const adSignal = technical.find((s) => s.category === 'advertising' && s.detected);
+  add(
+    'paying_for_traffic',
+    'advertising',
+    Boolean(adSignal),
+    adSignal ? `advertising tag found: ${adSignal.value ?? adSignal.key}` : null,
+    adSignal?.sourceUrl ?? homeUrl,
+    0.9,
+    'running paid advertising',
+  );
+
+  // The thesis, stated as one signal: paying for attention, nothing to convert it.
+  const weakConversion = hasWeakConversionInfrastructure(quality, technical);
+  add(
+    'weak_conversion_infrastructure',
+    'conversion',
+    weakConversion,
+    `no CRM tag, booking flow or chat widget across ${pages.length} crawled page${pages.length === 1 ? '' : 's'}`,
+    homeUrl,
+    0.6,
+    'no way to convert the traffic they get',
+  );
+  add(
+    'spending_without_conversion',
+    'conversion',
+    Boolean(adSignal) && weakConversion,
+    adSignal
+      ? `advertising tag (${adSignal.value ?? adSignal.key}) with no CRM, booking flow or chat widget found`
+      : null,
+    adSignal?.sourceUrl ?? homeUrl,
+    0.8,
+    'paying for leads with nothing to catch them',
+  );
+
+  const servicesPage = pages.find((p) => p.role === 'services');
+  add(
+    'high_value_services',
+    'quality',
+    HIGH_VALUE_SERVICES.some((service) => site.services.includes(service)),
+    `high-ticket work named on the site: ${site.services.filter((s) => HIGH_VALUE_SERVICES.includes(s)).join(', ')}`,
+    servicesPage?.url ?? homeUrl,
+    0.8,
+    'sells high-ticket jobs',
+  );
+
+  const areaPage = pages.find((p) => p.role === 'service_area');
+  add(
+    'large_service_area',
+    'quality',
+    site.serviceAreas.length >= 5,
+    `${site.serviceAreas.length} service areas named on the site: ${site.serviceAreas.slice(0, 8).join(', ')}`,
+    areaPage?.url ?? homeUrl,
+    0.7,
+    `${site.serviceAreas.length} service areas`,
+  );
+
+  add(
+    'emergency_services',
+    'quality',
+    Boolean(site.emergencyMention),
+    site.emergencyMention ? `site advertises "${site.emergencyMention}"` : null,
+    homeUrl,
+    0.8,
+    'emergency or same-day work',
+  );
+
+  return out;
+}
+
+/** Work where one extra booked job pays for the product several times over. */
+const HIGH_VALUE_SERVICES = [
+  'roof replacement', 'metal roof', 'flat roof', 'siding', 'window replacement',
+  'kitchen remodel', 'bathroom renovation', 'heat pump', 'furnace', 'air conditioning',
+  'insulation', 'interlock', 'hardscape', 'deck', 'fence',
+];

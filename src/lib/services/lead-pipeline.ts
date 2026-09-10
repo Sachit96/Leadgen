@@ -15,13 +15,8 @@ import { getDiscoveryProvider, DiscoveryError } from '@/lib/lead-generation/prov
 import { normalizeDiscoveredBusiness, type NormalizedLead } from '@/lib/lead-generation/normalize';
 import { findDuplicate, recordDuplicate } from '@/lib/lead-generation/dedupe';
 import { crawlWebsite } from '@/lib/enrichment/crawler';
-import { extractSite } from '@/lib/enrichment/extract';
-import {
-  detectSignals,
-  hasAdvertisingEvidence,
-  hasWeakConversionInfrastructure,
-  WEBSITE_QUALITY_VERSION,
-} from '@/lib/enrichment/signals';
+import { extractSite, type ExtractedPage } from '@/lib/enrichment/extract';
+import { detectSignals, hasAdvertisingEvidence, WEBSITE_QUALITY_VERSION } from '@/lib/enrichment/signals';
 import { recordActivity } from './activity';
 import { rescoreProspect } from './contacts';
 import { isSuppressed } from './suppression';
@@ -36,8 +31,21 @@ import { enqueueLeadJob, enqueueMany, type ClaimedLeadJob } from './lead-jobs';
  * by enqueuing the next one, which keeps the flow explicit and restartable at
  * any point.
  */
-/** Enough for the research agent; far short of a whole site. */
-const MAX_STORED_PAGE_TEXT = 20_000;
+/** Total normalized text kept per site. Far short of a whole site, ample for research. */
+const MAX_STORED_PAGE_TEXT = 40_000;
+
+/**
+ * Spends the storage budget across pages rather than on whichever came first.
+ *
+ * The homepage gets the largest share because it is usually the densest, but
+ * every page keeps its title, headings and a readable share of its text — the
+ * point is that the agent sees the whole site, not the top of it.
+ */
+function budgetedPages(pages: ExtractedPage[]): ExtractedPage[] {
+  if (pages.length === 0) return [];
+  const perPage = Math.max(1_500, Math.floor(MAX_STORED_PAGE_TEXT / pages.length));
+  return pages.map((page) => ({ ...page, text: page.text.slice(0, perPage) }));
+}
 
 export type StageResult =
   | { result: 'ok'; detail?: string }
@@ -334,11 +342,24 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
       kind: 'website',
       ok: false,
       input: { website: company.website },
-      output: {},
+      // Even a failed crawl keeps its trail: what was tried and what happened.
+      output: { attempts: crawl.attempts },
       latencyMs: crawl.latencyMs,
       errorCode: crawl.errorCode,
       errorMessage: crawl.errorMessage,
     });
+
+    await db
+      .update(leadDiscoveryRecords)
+      .set({
+        crawlStatus: 'FAILED',
+        crawlError: `${crawl.errorCode}: ${crawl.errorMessage ?? ''}`.slice(0, 300),
+        crawledAt: new Date(),
+        pagesCrawled: 0,
+      })
+      .where(eq(leadDiscoveryRecords.companyId, company.id));
+
+    if (job.searchJobId) await bumpSearchCounter(job.searchJobId, 'crawlFailedCount');
 
     await db
       .update(companies)
@@ -379,37 +400,34 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
       title: site.title,
       description: site.description,
       services: site.services,
+      serviceAreas: site.serviceAreas,
+      headings: site.headings,
+      emergencyMention: site.emergencyMention,
       emails: site.emails,
       phones: site.phones,
       socialUrls: site.socialUrls,
       bookingLinks: site.bookingLinks,
       quality,
-      // The readable page text, capped. Research reads this; without it the
-      // agent only ever saw the title and meta description and had almost
-      // nothing to work from. Already stripped of scripts, styles and markup,
-      // and still treated as untrusted where it reaches the model.
-      text: site.text.slice(0, MAX_STORED_PAGE_TEXT),
+      /**
+       * The crawled site, page by page, normalized.
+       *
+       * This is what the research agent reads. Storing only the title and meta
+       * description — which is what this did — left the agent with almost
+       * nothing to reason over while the crawler had already fetched and
+       * stripped the whole site. Kept per page rather than as one blob so a
+       * services page is not lost behind a long homepage, and so every fact
+       * the agent states can be traced to the URL it came from.
+       *
+       * Already stripped of scripts, styles and markup, and still treated as
+       * untrusted data everywhere it is used.
+       */
+      pages: budgetedPages(site.pages),
+      /** Every URL considered and what happened to it. */
+      attempts: crawl.attempts,
     },
     pagesFetched: crawl.pages.length,
     bytesFetched: crawl.bytesFetched,
     latencyMs: crawl.latencyMs,
-  });
-
-  // The ICP in one line: they are paying to generate leads and have nothing on
-  // the site to convert them. Derived rather than observed, so it is stored as
-  // an inferred signal with the observations it was drawn from as evidence.
-  const weakConversion = hasWeakConversionInfrastructure(quality, signals);
-  signals.push({
-    key: 'weak_conversion_infrastructure',
-    category: 'conversion',
-    detected: weakConversion,
-    value: weakConversion ? 'no crm, booking flow or chat widget found' : null,
-    confidence: 0.5,
-    evidence: weakConversion
-      ? `no CRM tag, booking flow or chat widget across ${crawl.pages.length} pages`
-      : null,
-    source: 'derived',
-    inferred: true,
   });
 
   // Signals are upserted per company+key so the latest crawl wins without
@@ -426,6 +444,7 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
         detected: signal.detected,
         confidence: signal.confidence,
         evidence: signal.evidence,
+        sourceUrl: signal.sourceUrl,
         source: signal.source,
         inferred: signal.inferred,
       })
@@ -436,6 +455,7 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
           value: signal.value ?? null,
           confidence: signal.confidence,
           evidence: signal.evidence,
+          sourceUrl: signal.sourceUrl,
           createdAt: new Date(),
         },
       });
@@ -458,6 +478,8 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
       instagramUrl: socialUrls.instagram ?? null,
       linkedinUrl: socialUrls.linkedin ?? null,
       leadGenerationSignals: signals.filter((s) => s.detected).map((s) => s.value ?? s.key),
+      serviceAreas: site.serviceAreas,
+      services: site.services,
       contentHash: crawl.contentHash,
       enrichedAt: new Date(),
       updatedAt: new Date(),
@@ -478,10 +500,19 @@ export async function runWebsiteEnrichment(job: ClaimedLeadJob): Promise<StageRe
 
   await db
     .update(leadDiscoveryRecords)
-    .set({ stage: 'ENRICHED' })
+    .set({
+      stage: 'ENRICHED',
+      crawlStatus: 'OK',
+      crawlError: null,
+      crawledAt: new Date(),
+      pagesCrawled: crawl.pages.length,
+    })
     .where(eq(leadDiscoveryRecords.companyId, company.id));
 
-  if (job.searchJobId) await bumpSearchCounter(job.searchJobId, 'enrichedCount');
+  if (job.searchJobId) {
+    await bumpSearchCounter(job.searchJobId, 'enrichedCount');
+    await bumpSearchCounter(job.searchJobId, 'crawledCount');
+  }
 
   await recordActivity(ctx, {
     type: 'enrichment_completed',
@@ -596,6 +627,16 @@ export async function refreshCallReadiness(ctx: Ctx, contactId: string): Promise
     .update(contacts)
     .set({ callReadiness: next, updatedAt: new Date() })
     .where(eq(contacts.id, contactId));
+
+  // Counted once, on the transition into READY, so a re-score cannot inflate it.
+  if (next === 'READY' && contact.callReadiness !== 'READY') {
+    const [record] = await db
+      .select({ searchJobId: leadDiscoveryRecords.searchJobId })
+      .from(leadDiscoveryRecords)
+      .where(eq(leadDiscoveryRecords.contactId, contactId))
+      .limit(1);
+    if (record?.searchJobId) await bumpSearchCounter(record.searchJobId, 'qualifiedCount');
+  }
 
   if (company) {
     await db.update(companies).set({ dataCompleteness: completeness }).where(eq(companies.id, company.id));

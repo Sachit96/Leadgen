@@ -15,6 +15,13 @@
       "when": 1788973608103,
       "tag": "0001_lead_generation_and_calling",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789001959750,
+      "tag": "0002_scraper_provenance",
+      "breakpoints": true
     }
   ]
 }

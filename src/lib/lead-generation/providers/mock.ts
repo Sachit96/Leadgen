@@ -57,6 +57,8 @@ export class MockDiscoveryProvider implements LeadDiscoveryProvider {
 
   /** When set, the next search throws — used to test failure handling. */
   failNext = false;
+  /** When set, the next search returns nothing — a market with no matches. */
+  emptyNext = false;
   searches: SearchRequest[] = [];
 
   async checkAvailability(): Promise<ProviderAvailability> {
@@ -69,6 +71,10 @@ export class MockDiscoveryProvider implements LeadDiscoveryProvider {
       this.failNext = false;
       const { DiscoveryError } = await import('./types');
       throw new DiscoveryError('Mock discovery failure', { code: 'MOCK_FAILURE', retryable: true });
+    }
+    if (this.emptyNext) {
+      this.emptyNext = false;
+      return { businesses: [], requestsUsed: 1, truncated: false };
     }
 
     // "roofing contractor" and "roofing" should both read as one trade, not

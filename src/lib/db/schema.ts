@@ -197,6 +197,10 @@ export const companies = pgTable(
     latitude: real('latitude'),
     longitude: real('longitude'),
     categories: jsonb('categories').notNull().default(sql`'[]'::jsonb`),
+    /** Areas the business says it serves, in its own words. */
+    serviceAreas: jsonb('service_areas').notNull().default(sql`'[]'::jsonb`),
+    /** Services named on the business's own site. */
+    services: jsonb('services').notNull().default(sql`'[]'::jsonb`),
     hours: jsonb('hours'),
     /** 0-100, versioned. Distinct from websiteQuality's coarse label. */
     websiteQualityScore: integer('website_quality_score'),
@@ -1035,6 +1039,12 @@ export const leadSearchJobs = pgTable(
     discoveredCount: integer('discovered_count').notNull().default(0),
     uniqueCount: integer('unique_count').notNull().default(0),
     duplicateCount: integer('duplicate_count').notNull().default(0),
+    /** Sites we successfully fetched at least one page from. */
+    crawledCount: integer('crawled_count').notNull().default(0),
+    /** Sites that would not load. A finding about the business, not a bug. */
+    crawlFailedCount: integer('crawl_failed_count').notNull().default(0),
+    /** Leads that cleared the readiness gate. */
+    qualifiedCount: integer('qualified_count').notNull().default(0),
     enrichedCount: integer('enriched_count').notNull().default(0),
     researchedCount: integer('researched_count').notNull().default(0),
     scoredCount: integer('scored_count').notNull().default(0),
@@ -1106,6 +1116,12 @@ export const leadDiscoveryRecords = pgTable(
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     attemptCount: integer('attempt_count').notNull().default(0),
+
+    /** Per-record crawl outcome, so one dead site is visible without digging. */
+    crawlStatus: text('crawl_status'),
+    crawlError: text('crawl_error'),
+    crawledAt: timestamp('crawled_at', { withTimezone: true }),
+    pagesCrawled: integer('pages_crawled'),
 
     discoveredAt: timestamp('discovered_at', { withTimezone: true }).notNull().defaultNow(),
     promotedAt: timestamp('promoted_at', { withTimezone: true }),
@@ -1238,6 +1254,8 @@ export const leadSignals = pgTable(
     confidence: real('confidence').notNull().default(1),
     /** What was actually found — a script src, a URL, a matched string. */
     evidence: text('evidence'),
+    /** The page the evidence is on, so an operator can open it and check. */
+    sourceUrl: text('source_url'),
     source: text('source').notNull(),
     inferred: boolean('inferred').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

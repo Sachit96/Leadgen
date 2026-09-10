@@ -6,6 +6,7 @@ import { createProspect } from '@/lib/services/contacts';
 import { researchBusiness } from '@/lib/agents/business-research';
 import { extractSite, extractSocialUrls, htmlToText } from '@/lib/enrichment/extract';
 import { normalizeWebsite } from '@/lib/lead-generation/normalize';
+import { pageFromHtml } from '@/lib/enrichment/crawler';
 
 /**
  * Scraped pages are hostile input.
@@ -77,14 +78,22 @@ describe('scraped content is treated as untrusted', () => {
       await h.db.select().from(companies).where(eq(companies.id, prospect.companyId!))
     )[0]!;
 
-    const site = extractSite([{ path: '/', url: 'https://apex.example/', html: HOSTILE_PAGE, status: 200, bytes: HOSTILE_PAGE.length }]);
+    const site = extractSite([pageFromHtml('https://apex.example/', HOSTILE_PAGE)]);
     await h.db.insert(leadEnrichment).values({
       organizationId: h.ctx.organizationId,
       companyId: company.id,
       kind: 'website',
       ok: true,
       input: { website: 'https://apex.example' },
-      output: { title: site.title, description: site.description, text: site.text },
+      // Exactly the shape runWebsiteEnrichment writes, so the fixture cannot
+      // drift from production storage and quietly stop exercising the fence.
+      output: {
+        title: site.title,
+        description: site.description,
+        services: site.services,
+        serviceAreas: site.serviceAreas,
+        pages: site.pages,
+      },
     });
 
     const outcome = await researchBusiness(h.ctx, company.id, { contactId: prospect.id });

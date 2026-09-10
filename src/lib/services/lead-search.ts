@@ -124,6 +124,9 @@ export async function bumpSearchCounter(
     | 'discoveredCount'
     | 'uniqueCount'
     | 'duplicateCount'
+    | 'crawledCount'
+    | 'crawlFailedCount'
+    | 'qualifiedCount'
     | 'enrichedCount'
     | 'researchedCount'
     | 'scoredCount'
@@ -135,6 +138,9 @@ export async function bumpSearchCounter(
     discoveredCount: leadSearchJobs.discoveredCount,
     uniqueCount: leadSearchJobs.uniqueCount,
     duplicateCount: leadSearchJobs.duplicateCount,
+    crawledCount: leadSearchJobs.crawledCount,
+    crawlFailedCount: leadSearchJobs.crawlFailedCount,
+    qualifiedCount: leadSearchJobs.qualifiedCount,
     enrichedCount: leadSearchJobs.enrichedCount,
     researchedCount: leadSearchJobs.researchedCount,
     scoredCount: leadSearchJobs.scoredCount,
@@ -178,6 +184,40 @@ export async function completeSearchIfDone(searchJobId: string): Promise<boolean
       and(eq(leadSearchJobs.id, searchJobId), sql`${leadSearchJobs.status} in ('QUEUED','RUNNING')`),
     );
   return true;
+}
+
+/**
+ * A run's outcome, counted from the rows it produced.
+ *
+ * Average score is computed over the leads this search created rather than
+ * stored on the job, so a re-score is reflected instead of frozen at the moment
+ * the run finished.
+ */
+export async function searchOutcome(ctx: Ctx, searchJobId: string) {
+  const { contacts, leadDiscoveryRecords: records } = await import('@/lib/db/schema');
+  const rows = await getDb()
+    .select({
+      leads: sql<number>`count(*)::int`,
+      scored: sql<number>`count(${contacts.score})::int`,
+      averageScore: sql<number>`coalesce(round(avg(${contacts.score}))::int, 0)`,
+      qualified: sql<number>`count(*) filter (where ${contacts.callReadiness} in ('READY','QUEUED'))::int`,
+    })
+    .from(records)
+    .innerJoin(contacts, eq(contacts.id, records.contactId))
+    .where(
+      and(
+        eq(records.organizationId, ctx.organizationId),
+        eq(records.searchJobId, searchJobId),
+      ),
+    );
+
+  const row = rows[0];
+  return {
+    leads: row?.leads ?? 0,
+    scored: row?.scored ?? 0,
+    averageScore: row?.averageScore ?? 0,
+    qualified: row?.qualified ?? 0,
+  };
 }
 
 /** Live progress, counted from the records themselves rather than estimated. */
