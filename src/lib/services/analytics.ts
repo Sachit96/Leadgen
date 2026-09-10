@@ -465,6 +465,7 @@ export async function leadFunnel(ctx: Ctx, range: DateRange) {
       discovered: sql<number>`coalesce(sum(${leadSearchJobs.discoveredCount}), 0)::int`,
       unique: sql<number>`coalesce(sum(${leadSearchJobs.uniqueCount}), 0)::int`,
       duplicates: sql<number>`coalesce(sum(${leadSearchJobs.duplicateCount}), 0)::int`,
+      crawlFailed: sql<number>`coalesce(sum(${leadSearchJobs.crawlFailedCount}), 0)::int`,
       failed: sql<number>`coalesce(sum(${leadSearchJobs.failedCount}), 0)::int`,
     })
     .from(leadSearchJobs)
@@ -511,6 +512,7 @@ export async function leadFunnel(ctx: Ctx, range: DateRange) {
     searches: s?.searches ?? 0,
     discovered: s?.discovered ?? 0,
     duplicates: s?.duplicates ?? 0,
+    crawlFailed: s?.crawlFailed ?? 0,
     failed: s?.failed ?? 0,
     promoted: t?.promoted ?? 0,
     crawled: t?.crawled ?? 0,

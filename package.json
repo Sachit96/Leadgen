@@ -2,7 +2,7 @@
   "name": "on-radar",
   "version": "1.0.0",
   "private": true,
-  "description": "On Radar \u2014 AI-powered outbound sales operating system",
+  "description": "On Radar — AI-powered outbound sales operating system",
   "engines": {
     "node": ">=20.9.0"
   },
@@ -26,6 +26,8 @@
     "@anthropic-ai/sdk": "^0.68.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.44.6",
+    "framer-motion": "^13.2.0",
+    "lucide-react": "^1.43.0",
     "next": "^15.5.4",
     "pg": "^8.16.3",
     "react": "^19.1.1",
