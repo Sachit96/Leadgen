@@ -1,0 +1,35 @@
+# Netlify build configuration.
+#
+# The important line is the build command. `next build` succeeds with no
+# environment at all — every page in this app is `force-dynamic`, so nothing is
+# prerendered and the env schema is never read at build time. Deploying that
+# way produces a green build and a site that returns 500 on every request.
+#
+# Running the migration first turns that silent runtime failure into a loud
+# build failure: no DATABASE_URL, no deploy.
+
+[build]
+  command = "npm run db:migrate && npm run build"
+  publish = ".next"
+
+[build.environment]
+  # package.json requires >= 20.9. Netlify's default has moved before.
+  NODE_VERSION = "20"
+
+# The Next.js Runtime. Netlify auto-detects it, but pinning it here means a
+# deploy cannot silently change behaviour when that default changes.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# The worker has no home on Netlify: `npm run worker` is a long-lived process
+# and functions are ephemeral. Drive the same code over HTTP instead —
+# POST /api/worker/tick with the WORKER_TOKEN as a bearer token, from Netlify
+# Scheduled Functions or any external scheduler. Without it nothing sends,
+# nothing enriches, and no lead ever leaves the queue.
